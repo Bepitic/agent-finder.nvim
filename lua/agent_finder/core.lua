@@ -1179,7 +1179,21 @@ function M._call_openai_api(messages, model, api_key)
   end
   
   if result.error then
-    return { success = false, error = "OpenAI API error: " .. (result.error.message or "Unknown error") }
+    local err_msg = "Unknown error"
+    if type(result.error) == "table" then
+      err_msg = result.error.message or result.error.type or vim.fn.json_encode(result.error)
+    elseif type(result.error) == "string" then
+      err_msg = result.error
+    else
+      -- result.error can be userdata; stringify safely
+      local ok, s = pcall(function()
+        return tostring(result.error)
+      end)
+      if ok and s and s ~= "" then
+        err_msg = s
+      end
+    end
+    return { success = false, error = "OpenAI API error: " .. err_msg }
   end
   
   -- Try Responses API fields first
