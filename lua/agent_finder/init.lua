@@ -39,6 +39,14 @@ function M.start_chat()
   return core.start_chat()
 end
 
+function M.load_tools()
+  return core.load_tools()
+end
+
+function M.execute_tool(tool_name, parameters)
+  return core.execute_tool(tool_name, parameters)
+end
+
 -- Utility functions
 function M.get_agents()
   return core.get_agents()
@@ -50,6 +58,10 @@ end
 
 function M.get_selected_agent()
   return core.get_selected_agent()
+end
+
+function M.get_tools()
+  return core.get_tools()
 end
 
 function M.clear_state()

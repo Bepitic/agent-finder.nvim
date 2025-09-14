@@ -66,6 +66,51 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Start chat with AI agent' })
+
+  vim.api.nvim_create_user_command('AFTools', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.load_tools()
+      local tools = agent_finder.get_tools()
+      if vim.tbl_isempty(tools) then
+        vim.notify('agent-finder.nvim: No tools loaded', vim.log.levels.WARN)
+      else
+        local tool_count = vim.tbl_count(tools)
+        vim.notify(string.format('agent-finder.nvim: Loaded %d tools', tool_count), vim.log.levels.INFO)
+      end
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Load available tools' })
+
+  vim.api.nvim_create_user_command('AFTool', function(opts)
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      local tool_name = opts.args
+      if tool_name == "" then
+        vim.notify('agent-finder.nvim: Please specify a tool name', vim.log.levels.WARN)
+        return
+      end
+      
+      -- Load tools if not already loaded
+      local tools = agent_finder.get_tools()
+      if vim.tbl_isempty(tools) then
+        agent_finder.load_tools()
+        tools = agent_finder.get_tools()
+      end
+      
+      -- Execute tool with no parameters for now
+      local result = agent_finder.execute_tool(tool_name, {})
+      if result.success then
+        vim.notify(string.format('agent-finder.nvim: Tool "%s" executed successfully', tool_name), vim.log.levels.INFO)
+        -- TODO: Display result in a buffer or window
+      else
+        vim.notify(string.format('agent-finder.nvim: Tool execution failed: %s', result.error), vim.log.levels.ERROR)
+      end
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Execute a tool', nargs = 1 })
 end
 
 -- Set up default keymaps
@@ -80,6 +125,7 @@ local function setup_keymaps()
     vim.keymap.set('n', '<leader>afs', '<cmd>AFSelect<cr>', vim.tbl_extend('force', opts, { desc = 'Select agent' }))
     vim.keymap.set('n', '<leader>afL', '<cmd>AFList<cr>', vim.tbl_extend('force', opts, { desc = 'List agents' }))
     vim.keymap.set('n', '<leader>afc', '<cmd>AFChat<cr>', vim.tbl_extend('force', opts, { desc = 'Start chat' }))
+    vim.keymap.set('n', '<leader>aft', '<cmd>AFTools<cr>', vim.tbl_extend('force', opts, { desc = 'Load tools' }))
   end
 end
 

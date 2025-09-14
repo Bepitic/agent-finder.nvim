@@ -170,6 +170,8 @@ require('agent_finder').setup({
 | `:AFList` | 📋 List available AI agents (with Telescope) |
 | `:AFSelect` | 🎯 Select AI agent from list (with Telescope) |
 | `:AFChat` | 💬 Start chat with AI agent (split window) |
+| `:AFTools` | 🔧 Load available tools |
+| `:AFTool` | ⚙️ Execute a specific tool |
 | `:AFGoal` | 🎯 Set AI agent goal for current buffer |
 | `:AFApply` | ⚡ Apply AI agent goal to current buffer |
 | `:AFEnv` | 🔑 Export API keys to vim.env |
@@ -182,6 +184,7 @@ require('agent_finder').setup({
 | `<leader>afL` | `:AFList` | 📋 List agents |
 | `<leader>afs` | `:AFSelect` | 🎯 Select agent |
 | `<leader>afc` | `:AFChat` | 💬 Start chat |
+| `<leader>aft` | `:AFTools` | 🔧 Load tools |
 | `<leader>afg` | `:AFGoal` | 🎯 Set goal |
 | `<leader>afa` | `:AFApply` | ⚡ Apply goal |
 
@@ -255,6 +258,82 @@ The plugin includes a full chat interface for interactive conversations with AI 
 - **Conversation History**: Full message history is preserved
 - **Auto-save**: Conversations can be saved with timestamps
 
+### Tools System
+
+The plugin includes a powerful tools system for extending functionality:
+
+- **Tool Definition**: Each tool is defined in a Lua file with metadata and implementation
+- **Parameter Validation**: Automatic type checking and required parameter validation
+- **Error Handling**: Detailed error messages for tool execution failures
+- **Extensible**: Easy to add new tools by creating Lua files
+
+#### Built-in Tools
+
+- **`list_files`**: Lists files in the workspace with filtering options
+  - Parameters: `path`, `pattern`, `include_hidden`, `max_depth`
+  - Example: `:AFTool list_files`
+
+#### Tool Commands
+
+- **`:AFTools`**: Load all available tools
+- **`:AFTool <name>`**: Execute a specific tool
+- **`<leader>aft`**: Quick keymap to load tools
+
+#### Creating Custom Tools
+
+Create a new tool by adding a Lua file to the `tools/` directory:
+
+```lua
+-- My Custom Tool
+local M = {}
+
+-- Tool metadata
+M.name = "My Custom Tool"
+M.description = "Description of what the tool does"
+M.version = "1.0.0"
+M.author = "agent-finder.nvim"
+
+-- Tool parameters definition
+M.parameters = {
+  param1 = {
+    type = "string",
+    required = true,
+    description = "Required string parameter"
+  },
+  param2 = {
+    type = "number",
+    required = false,
+    default = 42,
+    description = "Optional number parameter"
+  }
+}
+
+-- Tool implementation
+function M.execute(params)
+  local param1 = params.param1
+  local param2 = params.param2 or 42
+  
+  -- Validate parameters
+  if not param1 then
+    return { success = false, error = "param1 is required" }
+  end
+  
+  -- Tool logic here
+  local result = {
+    success = true,
+    data = {
+      message = "Tool executed successfully",
+      param1 = param1,
+      param2 = param2
+    }
+  }
+  
+  return result
+end
+
+return M
+```
+
 ### Telescope Integration
 
 The plugin integrates with [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) for a better user experience:
@@ -271,6 +350,7 @@ The plugin integrates with [telescope.nvim](https://github.com/nvim-telescope/te
 <leader>afL  " List agents (Telescope) - auto-loads if needed
 <leader>afs  " Select agent (Telescope) - auto-loads if needed
 <leader>afc  " Start chat with agent - auto-loads if needed
+<leader>aft  " Load tools
 <leader>afg  " Set goal - auto-loads agents if needed
 <leader>afa  " Apply goal
 <leader>afl  " Manual load (optional)
@@ -362,6 +442,8 @@ agent-finder.nvim/
 │   ├── performance_optimizer.yaml
 │   ├── lua_expert.yaml
 │   └── general_assistant.yaml
+├── tools/                   # Tool definitions
+│   └── list_files.lua       # Workspace file listing tool
 ├── lua/
 │   └── agent_finder/
 │       ├── init.lua         # Public API
