@@ -38,13 +38,37 @@ local function parse_with_lua(filepath)
   -- For production use, consider using a proper YAML library
   local result = {}
   local current_section = nil
+  local current_key = nil
+  local multiline_value = nil
+  local multiline_indent = 0
   
-  for _, line in ipairs(content) do
+  for i, line in ipairs(content) do
+    local original_line = line
     line = vim.trim(line)
     
     -- Skip empty lines and comments
     if line == '' or line:match('^%s*#') then
       goto continue
+    end
+    
+    -- Handle multiline values
+    if multiline_value ~= nil then
+      local indent = #original_line - #vim.trim(original_line)
+      if indent > multiline_indent or line == '' then
+        -- Continue multiline
+        multiline_value = multiline_value .. '\n' .. vim.trim(line)
+        goto continue
+      else
+        -- End multiline, save value
+        if current_section then
+          result[current_section][current_key] = multiline_value
+        else
+          result[current_key] = multiline_value
+        end
+        multiline_value = nil
+        current_key = nil
+        multiline_indent = 0
+      end
     end
     
     -- Section headers (e.g., "agents:")
@@ -57,14 +81,31 @@ local function parse_with_lua(filepath)
     -- Key-value pairs
     local key, value = line:match('^%s*([%w_]+):%s*(.*)$')
     if key and value then
-      if current_section then
-        result[current_section][key] = value
+      -- Check for multiline indicator
+      if value == '|' then
+        multiline_value = ''
+        current_key = key
+        multiline_indent = #original_line - #vim.trim(original_line)
+        goto continue
       else
-        result[key] = value
+        if current_section then
+          result[current_section][key] = value
+        else
+          result[key] = value
+        end
       end
     end
     
     ::continue::
+  end
+  
+  -- Handle any remaining multiline value
+  if multiline_value ~= nil and current_key then
+    if current_section then
+      result[current_section][current_key] = multiline_value
+    else
+      result[current_key] = multiline_value
+    end
   end
   
   return result, nil
@@ -119,6 +160,40 @@ function M.validate_structure(data)
     
     if not agent.prompt then
       return false, string.format('Agent "%s" missing required "prompt" field', name)
+    end
+    
+    -- Validate prompt is a string (not a table)
+    if type(agent.prompt) ~= 'string' then
+      return false, string.format('Agent "%s" prompt must be a string, got %s', name, type(agent.prompt))
+    end
+  end
+  
+  return true, nil
+end
+
+-- Validate agents structure (for individual agent files)
+function M.validate_agents(agents)
+  if type(agents) ~= 'table' then
+    return false, 'Agents must be a table'
+  end
+  
+  -- Validate each agent
+  for name, agent in pairs(agents) do
+    if type(agent) ~= 'table' then
+      return false, string.format('Agent "%s" must be a table', name)
+    end
+    
+    if not agent.name then
+      return false, string.format('Agent "%s" missing required "name" field', name)
+    end
+    
+    if not agent.prompt then
+      return false, string.format('Agent "%s" missing required "prompt" field', name)
+    end
+    
+    -- Validate prompt is a string (not a table)
+    if type(agent.prompt) ~= 'string' then
+      return false, string.format('Agent "%s" prompt must be a string, got %s', name, type(agent.prompt))
     end
   end
   

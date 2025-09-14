@@ -67,6 +67,51 @@ Plug 'Bepitic/agent-finder.nvim'
 
 Create a YAML file at `~/.config/nvim/agents.yaml` (or specify a custom path):
 
+#### Option 1: Individual Agent Files (Recommended)
+
+```yaml
+# API Keys Configuration
+api_keys:
+  openai: "your-openai-api-key-here"
+  anthropic: "your-anthropic-api-key-here"
+
+# Agents Directory
+# The plugin will automatically load all .yaml files from the agents/ directory
+agents_directory: "agents/"
+```
+
+Then create individual agent files in the `agents/` directory:
+
+**`agents/code_reviewer.yaml`:**
+```yaml
+name: "Code Reviewer"
+description: "Reviews code for best practices, bugs, and improvements"
+prompt: |
+  You are an expert code reviewer. Analyze the provided code and provide:
+  1. Potential bugs or issues
+  2. Code quality improvements
+  3. Performance optimizations
+  4. Best practice recommendations
+  
+  Be constructive and specific in your feedback.
+```
+
+**`agents/documenter.yaml`:**
+```yaml
+name: "Documentation Generator"
+description: "Generates comprehensive documentation for code"
+prompt: |
+  You are a technical documentation expert. Generate clear, comprehensive documentation for the provided code including:
+  1. Function/class descriptions
+  2. Parameter documentation
+  3. Usage examples
+  4. Return value descriptions
+  
+  Use appropriate documentation format for the language.
+```
+
+#### Option 2: Inline Agents
+
 ```yaml
 # API Keys Configuration
 api_keys:
@@ -219,7 +264,16 @@ If `yq` is not available, the plugin will fall back to a basic Lua YAML parser.
 ```
 agent-finder.nvim/
 ├── README.md
-├── agents.yaml              # Example configuration
+├── agents.yaml              # Main configuration file
+├── agents/                  # Individual agent files (recommended)
+│   ├── code_reviewer.yaml
+│   ├── documenter.yaml
+│   ├── refactorer.yaml
+│   ├── test_generator.yaml
+│   ├── security_auditor.yaml
+│   ├── performance_optimizer.yaml
+│   ├── lua_expert.yaml
+│   └── general_assistant.yaml
 ├── lua/
 │   └── agent_finder/
 │       ├── init.lua         # Public API
@@ -229,6 +283,14 @@ agent-finder.nvim/
 └── plugin/
     └── agent-finder.lua     # Plugin entry point
 ```
+
+### Benefits of Individual Agent Files
+
+- **🎯 Organization**: Each agent has its own file, making them easy to find and manage
+- **🔄 Version Control**: Track changes to individual agents separately
+- **👥 Collaboration**: Multiple people can work on different agents without conflicts
+- **📝 Maintenance**: Easier to update, add, or remove specific agents
+- **🔍 Discovery**: Clear file structure makes it easy to see what agents are available
 
 ### Extending the Plugin
 
