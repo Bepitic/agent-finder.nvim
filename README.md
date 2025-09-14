@@ -28,7 +28,7 @@ Load AI agents from YAML configuration, set goals, and apply them to your curren
 
 ```lua
 {
-  "your-username/agent-finder.nvim",
+  "Bepitic/agent-finder.nvim",
   config = function()
     require('agent_finder').setup({
       -- Optional configuration
@@ -48,7 +48,7 @@ Load AI agents from YAML configuration, set goals, and apply them to your curren
 
 ```lua
 use {
-  'your-username/agent-finder.nvim',
+  'Bepitic/agent-finder.nvim',
   config = function()
     require('agent_finder').setup()
   end
@@ -58,7 +58,7 @@ use {
 ### Using vim-plug
 
 ```vim
-Plug 'your-username/agent-finder.nvim'
+Plug 'Bepitic/agent-finder.nvim'
 ```
 
 ## ⚙️ Configuration
