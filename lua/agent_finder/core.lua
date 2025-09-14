@@ -1418,14 +1418,14 @@ function M._generate_ai_response(agent, user_message, chat_history)
       table.insert(input_list, {
         type = "message",
         role = msg.role or "user",
-        content = { { type = "text", text = msg.content or "" } },
+        content = { { type = "input_text", text = msg.content or "" } },
       })
     end
   end
   table.insert(input_list, {
     type = "message",
     role = "user",
-    content = { { type = "text", text = user_message or "" } },
+    content = { { type = "input_text", text = user_message or "" } },
   })
   
   local instructions = agent.prompt or ""
