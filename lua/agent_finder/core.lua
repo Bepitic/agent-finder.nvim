@@ -672,19 +672,17 @@ function M._open_chat_window(agent)
     string.format("**Agent:** %s", agent.display_name),
     string.format("**Description:** %s", agent.description),
     "",
-    "---",
-    "",
-    "## Conversation",
-    "",
-    string.format("**%s:** Hello! I'm %s. How can I help you today?", agent.display_name, agent.display_name),
-    "",
-    "---",
-    "",
     "## Instructions",
     "",
     "- Type your message below and press `<Enter>` to send",
     "- Press `<Esc>` to exit chat",
     "- Press `<C-s>` to save conversation",
+    "",
+    "---",
+    "",
+    "## Conversation",
+    "",
+    string.format("@> Hello! I'm %s. How can I help you today?", agent.display_name),
     "",
   }
   
@@ -768,11 +766,17 @@ function M._send_chat_message()
     return
   end
   
-  -- Get user message (everything after the last separator)
+  -- Get user message (everything after the last separator), skipping headers/instructions or lines with agent/user prefixes
   local user_message = ""
   for i = last_separator + 1, #lines do
-    if lines[i] ~= "" and not lines[i]:match("^**%w+:**") then
-      user_message = user_message .. lines[i] .. "\n"
+    local l = lines[i]
+    if l ~= ""
+      and not l:match("^##%s")
+      and not l:match("^-%s")
+      and not l:match("^@> ")
+      and not l:match("^%(%w+%)>%s")
+    then
+      user_message = user_message .. l .. "\n"
     end
   end
   
@@ -785,7 +789,7 @@ function M._send_chat_message()
   
   -- Add user message to chat (split into lines for proper formatting)
   local user_lines = {}
-  table.insert(user_lines, "**You:**")
+  table.insert(user_lines, "(You)>")
   for line in string.gmatch(user_message, "[^\r\n]+") do
     table.insert(user_lines, line)
   end
@@ -797,7 +801,7 @@ function M._send_chat_message()
   table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
   
   -- Show "Thinking..." message
-  local thinking_line = string.format("**%s:** 🤔 Thinking...", agent.display_name)
+  local thinking_line = "@> 🤔 Thinking..."
   vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { thinking_line, "" })
   
   -- Move cursor to end
@@ -829,7 +833,7 @@ function M._send_chat_message()
     
     -- Format the response
     local response_lines = {}
-    table.insert(response_lines, string.format("**%s:**", agent.display_name))
+    table.insert(response_lines, "@>")
     
     -- Split AI response into lines
     for line in string.gmatch(response.content, "[^\r\n]+") do
@@ -862,7 +866,7 @@ function M._send_chat_message()
     
     -- Show error message
     local error_lines = {}
-    table.insert(error_lines, string.format("**%s:**", agent.display_name))
+    table.insert(error_lines, "@>")
     table.insert(error_lines, "❌ Error: " .. response.error)
     table.insert(error_lines, "")
     
