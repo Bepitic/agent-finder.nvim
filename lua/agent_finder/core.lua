@@ -55,7 +55,7 @@ function M.load_agents()
     vim.b.agent_finder_api_keys = data.api_keys
   end
   
-  local agent_count = vim.tbl_count(agents)
+  local agent_count = (agents and type(agents) == "table") and vim.tbl_count(agents) or 0
   vim.notify(
     string.format('agent-finder.nvim: Loaded %d agents', agent_count),
     vim.log.levels.INFO
@@ -68,7 +68,7 @@ end
 function M.set_goal()
   -- Auto-load agents if not already loaded
   local agents = vim.b.agent_finder_agents
-  if not agents or vim.tbl_isempty(agents) then
+  if not agents or type(agents) ~= "table" or vim.tbl_isempty(agents) then
     vim.notify('agent-finder.nvim: Loading agents automatically...', vim.log.levels.INFO)
     local load_success = M.load_agents()
     if not load_success then
@@ -291,7 +291,7 @@ function M.list_agents()
   local agents = vim.b.agent_finder_agents
   
   -- Auto-load agents if not already loaded
-  if not agents or vim.tbl_isempty(agents) then
+  if not agents or type(agents) ~= "table" or vim.tbl_isempty(agents) then
     vim.notify('agent-finder.nvim: No agents loaded. Loading agents automatically...', vim.log.levels.INFO)
     local load_success = M.load_agents()
     if not load_success then
@@ -319,7 +319,7 @@ function M.select_agent()
   local agents = vim.b.agent_finder_agents
   
   -- Auto-load agents if not already loaded
-  if not agents or vim.tbl_isempty(agents) then
+  if not agents or type(agents) ~= "table" or vim.tbl_isempty(agents) then
     vim.notify('agent-finder.nvim: No agents loaded. Loading agents automatically...', vim.log.levels.INFO)
     local load_success = M.load_agents()
     if not load_success then
@@ -547,7 +547,7 @@ function M.start_chat()
   local agents = vim.b.agent_finder_agents
   
   -- Auto-load agents if not already loaded
-  if not agents or vim.tbl_isempty(agents) then
+  if not agents or type(agents) ~= "table" or vim.tbl_isempty(agents) then
     vim.notify('agent-finder.nvim: Loading agents automatically...', vim.log.levels.INFO)
     local load_success = M.load_agents()
     if not load_success then
@@ -1139,7 +1139,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
   
   -- Load tools if not already loaded
   local tools = M.get_tools()
-  if vim.tbl_isempty(tools) then
+  if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
     M.load_tools()
     tools = M.get_tools()
   end
@@ -1150,7 +1150,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
   -- System message with agent prompt and tools
   local system_message = agent.prompt
   
-  if not vim.tbl_isempty(tools) then
+  if tools and type(tools) == "table" and not vim.tbl_isempty(tools) then
     local tools_schema = M.generate_tools_schema()
     local tools_json = vim.fn.json_encode(tools_schema)
     system_message = system_message .. "\n\nYou have access to the following tools:\n" .. tools_json .. "\n\nYou can use these tools to help answer questions and perform tasks. When you want to use a tool, respond with a JSON object containing the tool name and parameters."

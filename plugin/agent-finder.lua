@@ -72,7 +72,7 @@ local function setup_commands()
     if ok then
       agent_finder.load_tools()
       local tools = agent_finder.get_tools()
-      if vim.tbl_isempty(tools) then
+      if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
         vim.notify('agent-finder.nvim: No tools loaded', vim.log.levels.WARN)
       else
         local tool_count = vim.tbl_count(tools)
@@ -94,7 +94,7 @@ local function setup_commands()
       
       -- Load tools if not already loaded
       local tools = agent_finder.get_tools()
-      if vim.tbl_isempty(tools) then
+      if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
         agent_finder.load_tools()
         tools = agent_finder.get_tools()
       end
@@ -117,7 +117,7 @@ local function setup_commands()
     if ok then
       -- Load tools if not already loaded
       local tools = agent_finder.get_tools()
-      if vim.tbl_isempty(tools) then
+      if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
         agent_finder.load_tools()
       end
       
@@ -147,7 +147,7 @@ local function setup_commands()
     if ok then
       -- Load tools if not already loaded
       local tools = agent_finder.get_tools()
-      if vim.tbl_isempty(tools) then
+      if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
         agent_finder.load_tools()
       end
       
@@ -181,17 +181,22 @@ local function setup_commands()
       local status = {
         "=== Agent Finder Status ===",
         "",
-        "Agents loaded: " .. (agents and vim.tbl_count(agents) or 0),
-        "API keys loaded: " .. (api_keys and vim.tbl_count(api_keys) or 0),
-        "Tools loaded: " .. (tools and vim.tbl_count(tools) or 0),
+        "Agents loaded: " .. (agents and type(agents) == "table" and vim.tbl_count(agents) or 0),
+        "API keys loaded: " .. (api_keys and type(api_keys) == "table" and vim.tbl_count(api_keys) or 0),
+        "Tools loaded: " .. (tools and type(tools) == "table" and vim.tbl_count(tools) or 0),
         "",
-        "OpenAI API key: " .. (api_keys.openai and "✅ Configured" or "❌ Not found"),
+        "OpenAI API key: " .. (api_keys and api_keys.openai and "✅ Configured" or "❌ Not found"),
         "Environment OPENAI_API_KEY: " .. (vim.env.OPENAI_API_KEY and "✅ Set" or "❌ Not set"),
+        "",
+        "Debug info:",
+        "  agents type: " .. type(agents),
+        "  api_keys type: " .. type(api_keys),
+        "  tools type: " .. type(tools),
         "",
         "Available agents:",
       }
       
-      if agents and not vim.tbl_isempty(agents) then
+      if agents and type(agents) == "table" and not vim.tbl_isempty(agents) then
         for name, agent in pairs(agents) do
           table.insert(status, "  - " .. name .. ": " .. (agent.description or "No description"))
         end
@@ -202,7 +207,7 @@ local function setup_commands()
       table.insert(status, "")
       table.insert(status, "Available tools:")
       
-      if tools and not vim.tbl_isempty(tools) then
+      if tools and type(tools) == "table" and not vim.tbl_isempty(tools) then
         for name, tool in pairs(tools) do
           table.insert(status, "  - " .. name .. ": " .. (tool.description or "No description"))
         end
