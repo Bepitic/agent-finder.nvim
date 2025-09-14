@@ -392,7 +392,6 @@ function M._show_agents_telescope(agents)
       end,
     }),
     sorter = conf.generic_sorter({}),
-    previewer = conf.qflist_previewer({}),
     attach_mappings = function(prompt_bufnr, map)
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()
@@ -461,7 +460,6 @@ function M._select_agent_telescope(agents)
       end,
     }),
     sorter = conf.generic_sorter({}),
-    previewer = conf.qflist_previewer({}),
     attach_mappings = function(prompt_bufnr, map)
       actions.select_default:replace(function()
         local selection = action_state.get_selected_entry()

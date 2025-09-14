@@ -187,39 +187,42 @@ require('agent_finder').setup({
 
 ### Basic Workflow
 
-1. **📥 Load Agents**: First, load your AI agents from the YAML configuration:
-   ```
-   :AFLoad
-   ```
-
-2. **📋 List Agents** (Optional): See all available agents:
+1. **📋 List Agents**: See all available agents (auto-loads if needed):
    ```
    :AFList
    ```
    This opens a Telescope picker showing all agents with descriptions.
 
-3. **🎯 Select Agent** (Optional): Choose a specific agent:
+2. **🎯 Select Agent** (Optional): Choose a specific agent:
    ```
    :AFSelect
    ```
    This opens a Telescope picker to select an agent. Press `<C-p>` to preview the agent's prompt.
 
-4. **🎯 Set Goal**: Define what you want the AI agent to do:
+3. **🎯 Set Goal**: Define what you want the AI agent to do:
    ```
    :AFGoal
    ```
    Enter your goal when prompted (e.g., "Review this function for potential bugs").
 
-5. **⚡ Apply Goal**: Apply the goal to your current buffer:
+4. **⚡ Apply Goal**: Apply the goal to your current buffer:
    ```
    :AFApply
    ```
    This will append a comment with your goal to the current file.
 
-6. **🔑 Export Environment**: If you need API keys in your environment:
+5. **🔑 Export Environment**: If you need API keys in your environment:
    ```
    :AFEnv
    ```
+
+### Manual Loading (Optional)
+
+If you prefer to load agents manually:
+```
+:AFLoad
+```
+This loads agents from your YAML configuration without showing the list.
 
 ### Telescope Integration
 
@@ -233,11 +236,11 @@ The plugin integrates with [telescope.nvim](https://github.com/nvim-telescope/te
 ### Quick Keymap Workflow
 
 ```vim
-<leader>afl  " Load agents
-<leader>afL  " List agents (Telescope)
-<leader>afs  " Select agent (Telescope)
-<leader>afg  " Set goal
+<leader>afL  " List agents (Telescope) - auto-loads if needed
+<leader>afs  " Select agent (Telescope) - auto-loads if needed
+<leader>afg  " Set goal - auto-loads agents if needed
 <leader>afa  " Apply goal
+<leader>afl  " Manual load (optional)
 ```
 
 ## API
