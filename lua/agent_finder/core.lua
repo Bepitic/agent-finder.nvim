@@ -3,6 +3,17 @@
 local M = {}
 local config = require('agent_finder.config')
 
+-- Debug logging function
+local function debug_log(message, ...)
+  if config.get('debug') then
+    if ... then
+      print("DEBUG:", message, ...)
+    else
+      print("DEBUG:", message)
+    end
+  end
+end
+
 -- Load agents from YAML configuration
 function M.load_agents()
   local config = require('agent_finder.config')
@@ -1442,21 +1453,21 @@ function M._generate_ai_response(agent, user_message, chat_history)
     
     -- If we got text content, check if it contains a tool call
     if resp.content and resp.content ~= "" then
+      debug_log("Checking content for tool call:", resp.content)
       -- Check if the content contains a JSON tool call
-      print("DEBUG: Checking content for tool call:", resp.content)
       local tool_match = resp.content:match("```json%s*({[^`]+})%s*```")
       if tool_match then
-        print("DEBUG: Found tool match:", tool_match)
+        debug_log("Found tool match:", tool_match)
         local success, tool_data = pcall(vim.fn.json_decode, tool_match)
-        print("DEBUG: JSON decode success:", success)
+        debug_log("JSON decode success:", success)
         if success then
-          print("DEBUG: Tool data:", vim.inspect(tool_data))
+          debug_log("Tool data:", vim.inspect(tool_data))
         end
         if success and tool_data.tool_name and tool_data.parameters then
-          print("DEBUG: Executing tool:", tool_data.tool_name)
+          debug_log("Executing tool:", tool_data.tool_name)
           -- Execute the tool
           local tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
-          print("DEBUG: Tool result:", vim.inspect(tool_result))
+          debug_log("Tool result:", vim.inspect(tool_result))
           
           -- Add the tool result to the input list for the next iteration
           local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
@@ -1469,12 +1480,12 @@ function M._generate_ai_response(agent, user_message, chat_history)
           -- Continue the loop to get the agent's response to the tool result
           -- (fall through to the rest of the loop)
         else
-          print("DEBUG: Tool parsing failed, returning content as-is")
+          debug_log("Tool parsing failed, returning content as-is")
           -- If tool parsing failed, return the content as-is
           return { success = true, content = resp.content }
         end
       else
-        print("DEBUG: No tool call found, returning content")
+        debug_log("No tool call found, returning content")
         -- If no tool call found, return the content
         return { success = true, content = resp.content }
       end
