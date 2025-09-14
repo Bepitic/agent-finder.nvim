@@ -77,7 +77,7 @@ api_keys:
 
 # Agents Directory
 # The plugin will automatically load all .yaml files from the agents/ directory
-agents_directory: "agents/"
+agents_directory: agents/
 ```
 
 Then create individual agent files in the `agents/` directory:
@@ -167,6 +167,8 @@ require('agent_finder').setup({
 | Command | Description |
 |---------|-------------|
 | `:AFLoad` | 📥 Load AI agents from YAML configuration |
+| `:AFList` | 📋 List available AI agents (with Telescope) |
+| `:AFSelect` | 🎯 Select AI agent from list (with Telescope) |
 | `:AFGoal` | 🎯 Set AI agent goal for current buffer |
 | `:AFApply` | ⚡ Apply AI agent goal to current buffer |
 | `:AFEnv` | 🔑 Export API keys to vim.env |
@@ -176,32 +178,67 @@ require('agent_finder').setup({
 | Keymap | Command | Description |
 |--------|---------|-------------|
 | `<leader>afl` | `:AFLoad` | 📥 Load agents |
+| `<leader>afL` | `:AFList` | 📋 List agents |
+| `<leader>afs` | `:AFSelect` | 🎯 Select agent |
 | `<leader>afg` | `:AFGoal` | 🎯 Set goal |
 | `<leader>afa` | `:AFApply` | ⚡ Apply goal |
 
 ## 🚀 Usage
+
+### Basic Workflow
 
 1. **📥 Load Agents**: First, load your AI agents from the YAML configuration:
    ```
    :AFLoad
    ```
 
-2. **🎯 Set Goal**: Define what you want the AI agent to do:
+2. **📋 List Agents** (Optional): See all available agents:
+   ```
+   :AFList
+   ```
+   This opens a Telescope picker showing all agents with descriptions.
+
+3. **🎯 Select Agent** (Optional): Choose a specific agent:
+   ```
+   :AFSelect
+   ```
+   This opens a Telescope picker to select an agent. Press `<C-p>` to preview the agent's prompt.
+
+4. **🎯 Set Goal**: Define what you want the AI agent to do:
    ```
    :AFGoal
    ```
    Enter your goal when prompted (e.g., "Review this function for potential bugs").
 
-3. **⚡ Apply Goal**: Apply the goal to your current buffer:
+5. **⚡ Apply Goal**: Apply the goal to your current buffer:
    ```
    :AFApply
    ```
    This will append a comment with your goal to the current file.
 
-4. **🔑 Export Environment**: If you need API keys in your environment:
+6. **🔑 Export Environment**: If you need API keys in your environment:
    ```
    :AFEnv
    ```
+
+### Telescope Integration
+
+The plugin integrates with [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) for a better user experience:
+
+- **`:AFList`**: Shows all available agents in a searchable list
+- **`:AFSelect`**: Interactive agent selection with preview
+- **Preview**: Press `<C-p>` in Telescope to see the full agent prompt
+- **Fallback**: If Telescope isn't available, commands fall back to command-line output
+
+### Quick Keymap Workflow
+
+```vim
+<leader>afl  " Load agents
+<leader>afL  " List agents (Telescope)
+<leader>afs  " Select agent (Telescope)
+<leader>afg  " Set goal
+<leader>afa  " Apply goal
+```
 
 ## API
 
@@ -236,6 +273,21 @@ agent_finder.clear_state()
 ```
 
 ## Dependencies
+
+### Optional: Telescope for enhanced UI
+
+For the best user experience with agent selection and listing, install [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim):
+
+```lua
+-- Using lazy.nvim
+{
+  'nvim-telescope/telescope.nvim',
+  tag = '0.1.0',
+  dependencies = { 'nvim-lua/plenary.nvim' }
+}
+```
+
+Without Telescope, the plugin will fall back to command-line output for listing agents.
 
 ### Optional: yq for YAML parsing
 

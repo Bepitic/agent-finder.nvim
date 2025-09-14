@@ -39,6 +39,24 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Export API keys to vim.env' })
+
+  vim.api.nvim_create_user_command('AFList', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.list_agents()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'List available AI agents' })
+
+  vim.api.nvim_create_user_command('AFSelect', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.select_agent()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Select and set AI agent' })
 end
 
 -- Set up default keymaps
@@ -50,6 +68,8 @@ local function setup_keymaps()
     vim.keymap.set('n', '<leader>afl', '<cmd>AFLoad<cr>', vim.tbl_extend('force', opts, { desc = 'Load agents' }))
     vim.keymap.set('n', '<leader>afg', '<cmd>AFGoal<cr>', vim.tbl_extend('force', opts, { desc = 'Set goal' }))
     vim.keymap.set('n', '<leader>afa', '<cmd>AFApply<cr>', vim.tbl_extend('force', opts, { desc = 'Apply goal' }))
+    vim.keymap.set('n', '<leader>afs', '<cmd>AFSelect<cr>', vim.tbl_extend('force', opts, { desc = 'Select agent' }))
+    vim.keymap.set('n', '<leader>afL', '<cmd>AFList<cr>', vim.tbl_extend('force', opts, { desc = 'List agents' }))
   end
 end
 

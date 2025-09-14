@@ -27,6 +27,14 @@ function M.export_env()
   return core.export_env()
 end
 
+function M.list_agents()
+  return core.list_agents()
+end
+
+function M.select_agent()
+  return core.select_agent()
+end
+
 -- Utility functions
 function M.get_agents()
   return core.get_agents()
@@ -34,6 +42,10 @@ end
 
 function M.get_goal()
   return core.get_goal()
+end
+
+function M.get_selected_agent()
+  return core.get_selected_agent()
 end
 
 function M.clear_state()

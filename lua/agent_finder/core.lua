@@ -207,17 +207,45 @@ function M._load_agents_from_directory(main_config_file, agents_dir)
   local config = require('agent_finder.config')
   local agents = {}
   
+  -- Clean up the agents_dir path (remove quotes if present)
+  agents_dir = string.gsub(agents_dir, '"', '')
+  agents_dir = string.gsub(agents_dir, "'", '')
+  agents_dir = vim.trim(agents_dir)
+  
   -- Get the directory of the main config file
   local config_dir = vim.fn.fnamemodify(main_config_file, ':h')
   local agents_path = config_dir .. '/' .. agents_dir
   
+  -- Debug output
+  if config.get('debug') then
+    vim.notify(
+      string.format('agent-finder.nvim: Looking for agents in: %s', agents_path),
+      vim.log.levels.DEBUG
+    )
+  end
+  
   -- Check if agents directory exists
   if vim.fn.isdirectory(agents_path) == 0 then
-    vim.notify(
-      string.format('agent-finder.nvim: Agents directory not found: %s', agents_path),
-      vim.log.levels.ERROR
-    )
-    return agents
+    -- Try alternative path: relative to plugin directory
+    local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
+    local alt_agents_path = plugin_dir .. '/' .. agents_dir
+    
+    if vim.fn.isdirectory(alt_agents_path) == 1 then
+      agents_path = alt_agents_path
+      if config.get('debug') then
+        vim.notify(
+          string.format('agent-finder.nvim: Using plugin agents directory: %s', agents_path),
+          vim.log.levels.DEBUG
+        )
+      end
+    else
+      vim.notify(
+        string.format('agent-finder.nvim: Agents directory not found in config (%s) or plugin (%s)', 
+          config_dir .. '/' .. agents_dir, alt_agents_path),
+        vim.log.levels.ERROR
+      )
+      return agents
+    end
   end
   
   -- Find all .yaml files in the agents directory
@@ -247,11 +275,258 @@ function M._load_agents_from_directory(main_config_file, agents_dir)
   return agents
 end
 
+-- List available agents
+function M.list_agents()
+  local agents = vim.b.agent_finder_agents
+  
+  if not agents or vim.tbl_isempty(agents) then
+    vim.notify('agent-finder.nvim: No agents loaded. Use :AFLoad first.', vim.log.levels.WARN)
+    return false
+  end
+  
+  -- Check if telescope is available
+  local telescope_ok, telescope = pcall(require, 'telescope')
+  if not telescope_ok then
+    -- Fallback: print agents to command line
+    M._print_agents_list(agents)
+    return true
+  end
+  
+  -- Use telescope to show agents
+  M._show_agents_telescope(agents)
+  return true
+end
+
+-- Select an agent using telescope
+function M.select_agent()
+  local agents = vim.b.agent_finder_agents
+  
+  if not agents or vim.tbl_isempty(agents) then
+    vim.notify('agent-finder.nvim: No agents loaded. Use :AFLoad first.', vim.log.levels.WARN)
+    return false
+  end
+  
+  -- Check if telescope is available
+  local telescope_ok, telescope = pcall(require, 'telescope')
+  if not telescope_ok then
+    vim.notify('agent-finder.nvim: Telescope not available. Please install telescope.nvim', vim.log.levels.ERROR)
+    return false
+  end
+  
+  -- Use telescope to select agent
+  M._select_agent_telescope(agents)
+  return true
+end
+
+-- Print agents list to command line (fallback)
+function M._print_agents_list(agents)
+  print("Available AI Agents:")
+  print("===================")
+  
+  for name, agent in pairs(agents) do
+    print(string.format("• %s (%s)", agent.name or name, agent.description or "No description"))
+  end
+  
+  print("\nUse :AFSelect to choose an agent, or :AFGoal to set a goal.")
+end
+
+-- Show agents in telescope
+function M._show_agents_telescope(agents)
+  local telescope = require('telescope')
+  local pickers = require('telescope.pickers')
+  local finders = require('telescope.finders')
+  local conf = require('telescope.config').values
+  local actions = require('telescope.actions')
+  local action_state = require('telescope.actions.state')
+  
+  -- Convert agents to telescope entries
+  local entries = {}
+  for name, agent in pairs(agents) do
+    table.insert(entries, {
+      name = name,
+      display_name = agent.name or name,
+      description = agent.description or "No description",
+      prompt = agent.prompt or "",
+    })
+  end
+  
+  -- Sort entries by name
+  table.sort(entries, function(a, b)
+    return a.display_name < b.display_name
+  end)
+  
+  local picker = pickers.new({}, {
+    prompt_title = "AI Agents",
+    finder = finders.new_table({
+      results = entries,
+      entry_maker = function(entry)
+        return {
+          value = entry,
+          display = string.format("%s - %s", entry.display_name, entry.description),
+          ordinal = entry.display_name,
+          name = entry.name,
+        }
+      end,
+    }),
+    sorter = conf.generic_sorter({}),
+    previewer = conf.qflist_previewer({}),
+    attach_mappings = function(prompt_bufnr, map)
+      actions.select_default:replace(function()
+        local selection = action_state.get_selected_entry()
+        actions.close(prompt_bufnr)
+        
+        if selection then
+          vim.b.agent_finder_selected_agent = selection.value
+          vim.notify(
+            string.format('agent-finder.nvim: Selected agent "%s"', selection.value.display_name),
+            vim.log.levels.INFO
+          )
+        end
+      end)
+      
+      -- Add preview action
+      map('i', '<C-p>', function()
+        local selection = action_state.get_selected_entry()
+        if selection then
+          M._preview_agent(selection.value)
+        end
+      end)
+      
+      return true
+    end,
+  })
+  
+  picker:find()
+end
+
+-- Select agent in telescope
+function M._select_agent_telescope(agents)
+  local telescope = require('telescope')
+  local pickers = require('telescope.pickers')
+  local finders = require('telescope.finders')
+  local conf = require('telescope.config').values
+  local actions = require('telescope.actions')
+  local action_state = require('telescope.actions.state')
+  
+  -- Convert agents to telescope entries
+  local entries = {}
+  for name, agent in pairs(agents) do
+    table.insert(entries, {
+      name = name,
+      display_name = agent.name or name,
+      description = agent.description or "No description",
+      prompt = agent.prompt or "",
+    })
+  end
+  
+  -- Sort entries by name
+  table.sort(entries, function(a, b)
+    return a.display_name < b.display_name
+  end)
+  
+  local picker = pickers.new({}, {
+    prompt_title = "Select AI Agent",
+    finder = finders.new_table({
+      results = entries,
+      entry_maker = function(entry)
+        return {
+          value = entry,
+          display = string.format("%s - %s", entry.display_name, entry.description),
+          ordinal = entry.display_name,
+          name = entry.name,
+        }
+      end,
+    }),
+    sorter = conf.generic_sorter({}),
+    previewer = conf.qflist_previewer({}),
+    attach_mappings = function(prompt_bufnr, map)
+      actions.select_default:replace(function()
+        local selection = action_state.get_selected_entry()
+        actions.close(prompt_bufnr)
+        
+        if selection then
+          vim.b.agent_finder_selected_agent = selection.value
+          vim.notify(
+            string.format('agent-finder.nvim: Selected agent "%s". Now use :AFGoal to set a goal.', selection.value.display_name),
+            vim.log.levels.INFO
+          )
+        end
+      end)
+      
+      -- Add preview action
+      map('i', '<C-p>', function()
+        local selection = action_state.get_selected_entry()
+        if selection then
+          M._preview_agent(selection.value)
+        end
+      end)
+      
+      return true
+    end,
+  })
+  
+  picker:find()
+end
+
+-- Preview agent details
+function M._preview_agent(agent)
+  local lines = {
+    string.format("Agent: %s", agent.display_name),
+    string.format("Description: %s", agent.description),
+    "",
+    "Prompt:",
+    string.rep("-", 50),
+  }
+  
+  -- Split prompt into lines and add them
+  for line in string.gmatch(agent.prompt, "[^\r\n]+") do
+    table.insert(lines, line)
+  end
+  
+  -- Create a temporary buffer to show the preview
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  
+  -- Set buffer options
+  vim.api.nvim_buf_set_option(bufnr, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(bufnr, 'bufhidden', 'wipe')
+  vim.api.nvim_buf_set_option(bufnr, 'swapfile', false)
+  vim.api.nvim_buf_set_option(bufnr, 'filetype', 'markdown')
+  
+  -- Create a floating window
+  local width = math.min(80, vim.o.columns - 4)
+  local height = math.min(20, vim.o.lines - 4)
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+  
+  local win_id = vim.api.nvim_open_win(bufnr, true, {
+    relative = 'editor',
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    border = 'rounded',
+    title = 'Agent Preview',
+    title_pos = 'center',
+  })
+  
+  -- Close window on any key press
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<Esc>', ':close<CR>', { silent = true })
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', 'q', ':close<CR>', { silent = true })
+  vim.api.nvim_buf_set_keymap(bufnr, 'n', '<CR>', ':close<CR>', { silent = true })
+end
+
+-- Get selected agent
+function M.get_selected_agent()
+  return vim.b.agent_finder_selected_agent
+end
+
 -- Clear buffer state
 function M.clear_state()
   vim.b.agent_finder_agents = nil
   vim.b.agent_finder_goal = nil
   vim.b.agent_finder_api_keys = nil
+  vim.b.agent_finder_selected_agent = nil
   
   vim.notify('agent-finder.nvim: Buffer state cleared', vim.log.levels.INFO)
 end
