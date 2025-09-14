@@ -1445,9 +1445,13 @@ function M._generate_ai_response(agent, user_message, chat_history)
   local instructions = agent.prompt or ""
   
   local max_iters = 3
-  for _ = 1, max_iters do
+  for iter = 1, max_iters do
+    debug_log("API call iteration:", iter)
+    debug_log("Input list:", vim.inspect(input_list))
     local resp = M._call_openai_api(input_list, nil, openai_key, { prebuilt_input = input_list, instructions = instructions, return_raw = true })
+    debug_log("API response:", vim.inspect(resp))
     if not resp.success then
+      debug_log("API call failed:", resp.error)
       return resp
     end
     
@@ -1506,12 +1510,16 @@ function M._generate_ai_response(agent, user_message, chat_history)
     
     -- Execute any function calls and append their outputs
     local executed_any = false
-    for _, item in ipairs(output_items) do
+    debug_log("Processing output items for tool calls:", #output_items)
+    for i, item in ipairs(output_items) do
+      debug_log("Processing item", i, ":", vim.inspect(item))
       if type(item) == "table" then
         local item_type = item.type
+        debug_log("Item type:", item_type)
         if item_type == "function_call" or item_type == "tool_use" or item_type == "tool_call" then
           local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
           local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
+          debug_log("Tool call found - name:", name, "args:", vim.inspect(args))
           local args_tbl = {}
           if type(args) == "string" and args ~= "" then
             local ok, parsed = pcall(vim.fn.json_decode, args)
@@ -1520,13 +1528,16 @@ function M._generate_ai_response(agent, user_message, chat_history)
             args_tbl = args
           end
           if name and name ~= "" then
+            debug_log("Executing tool:", name, "with args:", vim.inspect(args_tbl))
             local tool_result = M.execute_tool(name, args_tbl)
+            debug_log("Tool execution result:", vim.inspect(tool_result))
             local call_id = item.call_id or item.id or (name .. "_call")
             local output_payload = tool_result
             -- Ensure output is a JSON string
             local output_str = nil
             local ok_json, encoded = pcall(vim.fn.json_encode, output_payload)
             if ok_json then output_str = encoded else output_str = tostring(output_payload) end
+            debug_log("Adding tool result to input list:", output_str)
             table.insert(input_list, {
               type = "function_call_output",
               call_id = call_id,
@@ -1581,6 +1592,27 @@ function M._generate_ai_response(agent, user_message, chat_history)
     return { success = true, content = final_content }
   end
   
+  -- Fallback: if we have a response but no content, try to extract any text from the response
+  if resp then
+    debug_log("No content found, trying fallback extraction")
+    local fallback_content = ""
+    
+    -- Try to extract from any text fields in the response
+    if resp.raw and resp.raw.choices and #resp.raw.choices > 0 then
+      local choice = resp.raw.choices[1]
+      if choice.message and choice.message.content then
+        fallback_content = choice.message.content
+        debug_log("Found fallback content in choices[1].message.content:", fallback_content)
+      end
+    end
+    
+    if fallback_content ~= "" then
+      debug_log("Returning fallback content")
+      return { success = true, content = fallback_content }
+    end
+  end
+  
+  debug_log("No content found in any format, returning error")
   return { success = false, error = "No textual output from model after tool calls" }
 end
 

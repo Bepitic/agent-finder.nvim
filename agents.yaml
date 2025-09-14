@@ -1,6 +1,9 @@
 # agent-finder.nvim Configuration
 # Main configuration file that loads agents from individual files
 
+# Debug mode - set to true to see detailed logging
+debug: true
+
 # API Keys Configuration
 api_keys:
   openai: "your-openai-api-key-here"
