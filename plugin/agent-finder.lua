@@ -57,6 +57,15 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Select and set AI agent' })
+
+  vim.api.nvim_create_user_command('AFChat', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.start_chat()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Start chat with AI agent' })
 end
 
 -- Set up default keymaps
@@ -70,6 +79,7 @@ local function setup_keymaps()
     vim.keymap.set('n', '<leader>afa', '<cmd>AFApply<cr>', vim.tbl_extend('force', opts, { desc = 'Apply goal' }))
     vim.keymap.set('n', '<leader>afs', '<cmd>AFSelect<cr>', vim.tbl_extend('force', opts, { desc = 'Select agent' }))
     vim.keymap.set('n', '<leader>afL', '<cmd>AFList<cr>', vim.tbl_extend('force', opts, { desc = 'List agents' }))
+    vim.keymap.set('n', '<leader>afc', '<cmd>AFChat<cr>', vim.tbl_extend('force', opts, { desc = 'Start chat' }))
   end
 end
 

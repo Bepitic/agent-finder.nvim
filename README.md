@@ -169,6 +169,7 @@ require('agent_finder').setup({
 | `:AFLoad` | 📥 Load AI agents from YAML configuration |
 | `:AFList` | 📋 List available AI agents (with Telescope) |
 | `:AFSelect` | 🎯 Select AI agent from list (with Telescope) |
+| `:AFChat` | 💬 Start chat with AI agent (split window) |
 | `:AFGoal` | 🎯 Set AI agent goal for current buffer |
 | `:AFApply` | ⚡ Apply AI agent goal to current buffer |
 | `:AFEnv` | 🔑 Export API keys to vim.env |
@@ -180,6 +181,7 @@ require('agent_finder').setup({
 | `<leader>afl` | `:AFLoad` | 📥 Load agents |
 | `<leader>afL` | `:AFList` | 📋 List agents |
 | `<leader>afs` | `:AFSelect` | 🎯 Select agent |
+| `<leader>afc` | `:AFChat` | 💬 Start chat |
 | `<leader>afg` | `:AFGoal` | 🎯 Set goal |
 | `<leader>afa` | `:AFApply` | ⚡ Apply goal |
 
@@ -199,19 +201,25 @@ require('agent_finder').setup({
    ```
    This opens a Telescope picker to select an agent. Press `<C-p>` to preview the agent's prompt.
 
-3. **🎯 Set Goal**: Define what you want the AI agent to do:
+3. **💬 Start Chat**: Have a conversation with an AI agent:
+   ```
+   :AFChat
+   ```
+   This opens a split window where you can chat with the selected agent.
+
+4. **🎯 Set Goal**: Define what you want the AI agent to do:
    ```
    :AFGoal
    ```
    Enter your goal when prompted (e.g., "Review this function for potential bugs").
 
-4. **⚡ Apply Goal**: Apply the goal to your current buffer:
+5. **⚡ Apply Goal**: Apply the goal to your current buffer:
    ```
    :AFApply
    ```
    This will append a comment with your goal to the current file.
 
-5. **🔑 Export Environment**: If you need API keys in your environment:
+6. **🔑 Export Environment**: If you need API keys in your environment:
    ```
    :AFEnv
    ```
@@ -224,12 +232,36 @@ If you prefer to load agents manually:
 ```
 This loads agents from your YAML configuration without showing the list.
 
+### Chat Interface
+
+The plugin includes a full chat interface for interactive conversations with AI agents:
+
+- **Split Window**: Opens a vertical split with the chat interface
+- **Agent Selection**: Choose any agent from your configuration
+- **Real-time Chat**: Type messages and get responses
+- **Message History**: Full conversation history is maintained
+- **Save Conversations**: Export chat logs to markdown files
+
+#### Chat Controls
+
+- **`<Enter>`**: Send message
+- **`<Esc>`**: Exit chat
+- **`<C-s>`**: Save conversation to file
+
+#### Chat Features
+
+- **Markdown Formatting**: Chat is displayed in markdown format
+- **Agent Context**: Each agent uses its specific prompt as system context
+- **Conversation History**: Full message history is preserved
+- **Auto-save**: Conversations can be saved with timestamps
+
 ### Telescope Integration
 
 The plugin integrates with [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) for a better user experience:
 
 - **`:AFList`**: Shows all available agents in a searchable list
 - **`:AFSelect`**: Interactive agent selection with preview
+- **`:AFChat`**: Select agent for chat interface
 - **Preview**: Press `<C-p>` in Telescope to see the full agent prompt
 - **Fallback**: If Telescope isn't available, commands fall back to command-line output
 
@@ -238,6 +270,7 @@ The plugin integrates with [telescope.nvim](https://github.com/nvim-telescope/te
 ```vim
 <leader>afL  " List agents (Telescope) - auto-loads if needed
 <leader>afs  " Select agent (Telescope) - auto-loads if needed
+<leader>afc  " Start chat with agent - auto-loads if needed
 <leader>afg  " Set goal - auto-loads agents if needed
 <leader>afa  " Apply goal
 <leader>afl  " Manual load (optional)

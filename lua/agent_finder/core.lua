@@ -542,12 +542,318 @@ function M.get_selected_agent()
   return vim.b.agent_finder_selected_agent
 end
 
+-- Start chat with an agent
+function M.start_chat()
+  local agents = vim.b.agent_finder_agents
+  
+  -- Auto-load agents if not already loaded
+  if not agents or vim.tbl_isempty(agents) then
+    vim.notify('agent-finder.nvim: Loading agents automatically...', vim.log.levels.INFO)
+    local load_success = M.load_agents()
+    if not load_success then
+      vim.notify('agent-finder.nvim: Failed to load agents automatically.', vim.log.levels.ERROR)
+      return false
+    end
+    agents = vim.b.agent_finder_agents
+  end
+  
+  -- Check if telescope is available
+  local telescope_ok, telescope = pcall(require, 'telescope')
+  if not telescope_ok then
+    vim.notify('agent-finder.nvim: Telescope not available. Please install telescope.nvim', vim.log.levels.ERROR)
+    return false
+  end
+  
+  -- Use telescope to select agent for chat
+  M._select_agent_for_chat(agents)
+  return true
+end
+
+-- Select agent for chat in telescope
+function M._select_agent_for_chat(agents)
+  local telescope = require('telescope')
+  local pickers = require('telescope.pickers')
+  local finders = require('telescope.finders')
+  local conf = require('telescope.config').values
+  local actions = require('telescope.actions')
+  local action_state = require('telescope.actions.state')
+  
+  -- Convert agents to telescope entries
+  local entries = {}
+  for name, agent in pairs(agents) do
+    table.insert(entries, {
+      name = name,
+      display_name = agent.name or name,
+      description = agent.description or "No description",
+      prompt = agent.prompt or "",
+    })
+  end
+  
+  -- Sort entries by name
+  table.sort(entries, function(a, b)
+    return a.display_name < b.display_name
+  end)
+  
+  local picker = pickers.new({}, {
+    prompt_title = "Select Agent for Chat",
+    finder = finders.new_table({
+      results = entries,
+      entry_maker = function(entry)
+        return {
+          value = entry,
+          display = string.format("%s - %s", entry.display_name, entry.description),
+          ordinal = entry.display_name,
+          name = entry.name,
+        }
+      end,
+    }),
+    sorter = conf.generic_sorter({}),
+    attach_mappings = function(prompt_bufnr, map)
+      actions.select_default:replace(function()
+        local selection = action_state.get_selected_entry()
+        actions.close(prompt_bufnr)
+        
+        if selection then
+          M._open_chat_window(selection.value)
+        end
+      end)
+      
+      return true
+    end,
+  })
+  
+  picker:find()
+end
+
+-- Open chat window with selected agent
+function M._open_chat_window(agent)
+  -- Create a new buffer for the chat
+  local chat_bufnr = vim.api.nvim_create_buf(false, true)
+  
+  -- Set buffer options
+  vim.api.nvim_buf_set_option(chat_bufnr, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(chat_bufnr, 'bufhidden', 'wipe')
+  vim.api.nvim_buf_set_option(chat_bufnr, 'swapfile', false)
+  vim.api.nvim_buf_set_option(chat_bufnr, 'filetype', 'markdown')
+  
+  -- Create split window
+  vim.cmd('vsplit')
+  vim.api.nvim_win_set_buf(0, chat_bufnr)
+  
+  -- Set window options
+  vim.api.nvim_win_set_option(0, 'number', true)
+  vim.api.nvim_win_set_option(0, 'relativenumber', false)
+  vim.api.nvim_win_set_option(0, 'wrap', true)
+  
+  -- Initialize chat content
+  local chat_content = {
+    string.format("# Chat with %s", agent.display_name),
+    "",
+    string.format("**Agent:** %s", agent.display_name),
+    string.format("**Description:** %s", agent.description),
+    "",
+    "---",
+    "",
+    "## Conversation",
+    "",
+    string.format("**%s:** Hello! I'm %s. How can I help you today?", agent.display_name, agent.display_name),
+    "",
+    "---",
+    "",
+    "## Instructions",
+    "",
+    "- Type your message below and press `<Enter>` to send",
+    "- Press `<Esc>` to exit chat",
+    "- Press `<C-s>` to save conversation",
+    "",
+  }
+  
+  vim.api.nvim_buf_set_lines(chat_bufnr, 0, -1, false, chat_content)
+  
+  -- Store chat state
+  vim.b.agent_finder_chat_bufnr = chat_bufnr
+  vim.b.agent_finder_chat_agent = agent
+  vim.b.agent_finder_chat_messages = {
+    { role = "system", content = agent.prompt },
+    { role = "assistant", content = string.format("Hello! I'm %s. How can I help you today?", agent.display_name) }
+  }
+  
+  -- Set up chat keymaps
+  M._setup_chat_keymaps(chat_bufnr)
+  
+  -- Move cursor to the end
+  vim.api.nvim_win_set_cursor(0, { #chat_content, 0 })
+  
+  vim.notify(
+    string.format('agent-finder.nvim: Started chat with %s. Type your message and press Enter.', agent.display_name),
+    vim.log.levels.INFO
+  )
+end
+
+-- Set up keymaps for chat buffer
+function M._setup_chat_keymaps(bufnr)
+  local opts = { buffer = bufnr, silent = true, noremap = true }
+  
+  -- Enter to send message
+  vim.keymap.set('n', '<CR>', function()
+    M._send_chat_message()
+  end, opts)
+  
+  -- Escape to exit chat
+  vim.keymap.set('n', '<Esc>', function()
+    M._close_chat()
+  end, opts)
+  
+  -- Ctrl+S to save conversation
+  vim.keymap.set('n', '<C-s>', function()
+    M._save_chat_conversation()
+  end, opts)
+  
+  -- Insert mode mappings
+  vim.keymap.set('i', '<CR>', function()
+    M._send_chat_message()
+  end, opts)
+  
+  vim.keymap.set('i', '<Esc>', function()
+    M._close_chat()
+  end, opts)
+end
+
+-- Send chat message
+function M._send_chat_message()
+  local chat_bufnr = vim.b.agent_finder_chat_bufnr
+  local agent = vim.b.agent_finder_chat_agent
+  
+  if not chat_bufnr or not agent then
+    vim.notify('agent-finder.nvim: No active chat session', vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Get current line content
+  local current_line = vim.api.nvim_get_current_line()
+  local cursor_pos = vim.api.nvim_win_get_cursor(0)
+  local line_num = cursor_pos[1]
+  
+  -- Check if we're in a message area (after the last "---")
+  local lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
+  local last_separator = 0
+  for i, line in ipairs(lines) do
+    if line:match("^---$") then
+      last_separator = i
+    end
+  end
+  
+  if line_num <= last_separator then
+    vim.notify('agent-finder.nvim: Please type your message after the last separator line', vim.log.levels.WARN)
+    return
+  end
+  
+  -- Get user message (everything after the last separator)
+  local user_message = ""
+  for i = last_separator + 1, #lines do
+    if lines[i] ~= "" and not lines[i]:match("^**%w+:**") then
+      user_message = user_message .. lines[i] .. "\n"
+    end
+  end
+  
+  user_message = vim.trim(user_message)
+  
+  if user_message == "" then
+    vim.notify('agent-finder.nvim: Please enter a message', vim.log.levels.WARN)
+    return
+  end
+  
+  -- Add user message to chat
+  local user_line = string.format("**You:** %s", user_message)
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { user_line, "" })
+  
+  -- Add to messages history
+  table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
+  
+  -- Simulate agent response (for now, just echo back)
+  local response = M._generate_agent_response(agent, user_message)
+  local agent_line = string.format("**%s:** %s", agent.display_name, response)
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { agent_line, "" })
+  
+  -- Add to messages history
+  table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response })
+  
+  -- Move cursor to end
+  local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
+  vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
+end
+
+-- Generate agent response (placeholder for now)
+function M._generate_agent_response(agent, user_message)
+  -- This is a placeholder. In a real implementation, you would:
+  -- 1. Send the message to an AI API (OpenAI, Anthropic, etc.)
+  -- 2. Use the agent's prompt as the system message
+  -- 3. Return the actual AI response
+  
+  local responses = {
+    "That's an interesting question! Let me think about that...",
+    "I understand what you're asking. Here's my perspective:",
+    "Great question! Based on my expertise, I would suggest:",
+    "I can help you with that. Let me break it down:",
+    "That's a good point. From my experience:",
+  }
+  
+  local random_response = responses[math.random(#responses)]
+  return string.format("%s\n\n*Note: This is a placeholder response. In a real implementation, this would be an actual AI response using the agent's prompt and your message.*", random_response)
+end
+
+-- Close chat
+function M._close_chat()
+  local chat_bufnr = vim.b.agent_finder_chat_bufnr
+  if chat_bufnr and vim.api.nvim_buf_is_valid(chat_bufnr) then
+    vim.api.nvim_buf_delete(chat_bufnr, { force = true })
+  end
+  
+  vim.b.agent_finder_chat_bufnr = nil
+  vim.b.agent_finder_chat_agent = nil
+  vim.b.agent_finder_chat_messages = nil
+  
+  vim.notify('agent-finder.nvim: Chat closed', vim.log.levels.INFO)
+end
+
+-- Save chat conversation
+function M._save_chat_conversation()
+  local chat_bufnr = vim.b.agent_finder_chat_bufnr
+  local agent = vim.b.agent_finder_chat_agent
+  
+  if not chat_bufnr or not agent then
+    vim.notify('agent-finder.nvim: No active chat session to save', vim.log.levels.ERROR)
+    return
+  end
+  
+  local timestamp = os.date("%Y-%m-%d_%H-%M-%S")
+  local filename = string.format("chat_%s_%s.md", agent.name, timestamp)
+  local filepath = vim.fn.expand("~/") .. filename
+  
+  -- Get chat content
+  local lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
+  local content = table.concat(lines, "\n")
+  
+  -- Write to file
+  local file = io.open(filepath, "w")
+  if file then
+    file:write(content)
+    file:close()
+    vim.notify(string.format('agent-finder.nvim: Chat saved to %s', filepath), vim.log.levels.INFO)
+  else
+    vim.notify('agent-finder.nvim: Failed to save chat', vim.log.levels.ERROR)
+  end
+end
+
 -- Clear buffer state
 function M.clear_state()
   vim.b.agent_finder_agents = nil
   vim.b.agent_finder_goal = nil
   vim.b.agent_finder_api_keys = nil
   vim.b.agent_finder_selected_agent = nil
+  vim.b.agent_finder_chat_bufnr = nil
+  vim.b.agent_finder_chat_agent = nil
+  vim.b.agent_finder_chat_messages = nil
   
   vim.notify('agent-finder.nvim: Buffer state cleared', vim.log.levels.INFO)
 end

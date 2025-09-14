@@ -35,6 +35,10 @@ function M.select_agent()
   return core.select_agent()
 end
 
+function M.start_chat()
+  return core.start_chat()
+end
+
 -- Utility functions
 function M.get_agents()
   return core.get_agents()
