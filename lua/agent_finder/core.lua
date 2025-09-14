@@ -1124,11 +1124,9 @@ function M._call_openai_api(messages, model, api_key)
     for tool_name, spec in pairs(tools_schema or {}) do
       table.insert(openai_tools, {
         type = "function",
-        ["function"] = {
-          name = spec.tool_name or tool_name,
-          description = spec.description or "",
-          parameters = spec.parameters or { type = "object", properties = {}, required = {} },
-        }
+        name = spec.tool_name or tool_name,
+        description = spec.description or "",
+        parameters = spec.parameters or { type = "object", properties = {}, required = {} },
       })
     end
   end
