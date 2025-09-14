@@ -896,8 +896,8 @@ function M._send_chat_message()
         end
         table.insert(followup_input, {
           type = "message",
-          role = "user",
-          content = { { type = "input_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
+          role = "assistant",
+          content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
         })
         local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
         if followup and followup.success and followup.content and followup.content ~= "" then
@@ -1185,10 +1185,12 @@ function M._call_openai_api(messages, model, api_key, opts)
     if type(messages) == "table" then
       local items = {}
       for _, msg in ipairs(messages) do
+        local role = msg.role or "user"
+        local content_type = (role == "assistant") and "output_text" or "input_text"
         table.insert(items, {
           type = "message",
-          role = msg.role or "user",
-          content = { { type = "input_text", text = msg.content or "" } },
+          role = role,
+          content = { { type = content_type, text = msg.content or "" } },
         })
       end
       request_input = items
@@ -1415,10 +1417,12 @@ function M._generate_ai_response(agent, user_message, chat_history)
   local input_list = {}
   if chat_history then
     for _, msg in ipairs(chat_history) do
+      local role = msg.role or "user"
+      local content_type = (role == "assistant") and "output_text" or "input_text"
       table.insert(input_list, {
         type = "message",
-        role = msg.role or "user",
-        content = { { type = "input_text", text = msg.content or "" } },
+        role = role,
+        content = { { type = content_type, text = msg.content or "" } },
       })
     end
   end
