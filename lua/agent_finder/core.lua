@@ -1445,10 +1445,17 @@ function M._generate_ai_response(agent, user_message, chat_history)
       -- Check if the content contains a JSON tool call
       local tool_match = resp.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
       if tool_match then
+        print("DEBUG: Found tool match:", tool_match)
         local success, tool_data = pcall(vim.fn.json_decode, tool_match)
+        print("DEBUG: JSON decode success:", success)
+        if success then
+          print("DEBUG: Tool data:", vim.inspect(tool_data))
+        end
         if success and tool_data.tool_name and tool_data.parameters then
+          print("DEBUG: Executing tool:", tool_data.tool_name)
           -- Execute the tool
           local tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
+          print("DEBUG: Tool result:", vim.inspect(tool_result))
           
           -- Add the tool result to the input list for the next iteration
           local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
@@ -1461,10 +1468,12 @@ function M._generate_ai_response(agent, user_message, chat_history)
           -- Continue the loop to get the agent's response to the tool result
           -- (fall through to the rest of the loop)
         else
+          print("DEBUG: Tool parsing failed, returning content as-is")
           -- If tool parsing failed, return the content as-is
           return { success = true, content = resp.content }
         end
       else
+        print("DEBUG: No tool call found, returning content")
         -- If no tool call found, return the content
         return { success = true, content = resp.content }
       end
