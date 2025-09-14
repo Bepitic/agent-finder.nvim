@@ -7,8 +7,18 @@ local M = {}
 local function debug_log(message, ...)
   local config = require('agent_finder.config')
   if config and config.get and config.get('debug') then
-    if ... then
-      print("DEBUG [list_files]:", message, ...)
+    local args = {...}
+    if #args > 0 then
+      local arg_str = ""
+      for i, arg in ipairs(args) do
+        if i > 1 then arg_str = arg_str .. " " end
+        if type(arg) == "table" then
+          arg_str = arg_str .. vim.inspect(arg)
+        else
+          arg_str = arg_str .. tostring(arg)
+        end
+      end
+      print("DEBUG [list_files]:", message, arg_str)
     else
       print("DEBUG [list_files]:", message)
     end
@@ -143,16 +153,12 @@ function M.execute(params)
   -- Build glob pattern
   local glob_pattern = pattern
   if max_depth > 0 then
-    -- Add depth limitation
-    local depth_pattern = ""
-    for i = 1, max_depth do
-      if i == 1 then
-        depth_pattern = "**/"
-      else
-        depth_pattern = depth_pattern .. "*/"
-      end
+    -- For recursive search, use **/ prefix
+    if pattern == "*" then
+      glob_pattern = "**/*"
+    else
+      glob_pattern = "**/" .. pattern
     end
-    glob_pattern = depth_pattern .. pattern
   end
   
   debug_log("Glob pattern built - original_pattern:", pattern)
@@ -161,6 +167,13 @@ function M.execute(params)
   
   -- Find files with error handling
   debug_log("Starting file search with globpath")
+  debug_log("globpath parameters - target_path:", target_path)
+  debug_log("globpath parameters - glob_pattern:", glob_pattern)
+  
+  -- Test with a simple pattern first
+  local test_files = vim.fn.globpath(target_path, "*", false, true)
+  debug_log("Test with simple pattern '*':", #test_files, "files found")
+  
   local success, files = pcall(function()
     return vim.fn.globpath(target_path, glob_pattern, false, true)
   end)
