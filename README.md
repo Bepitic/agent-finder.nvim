@@ -1,8 +1,19 @@
-# agent-finder.nvim
+<div align="center">
 
-A Neovim plugin for managing and applying AI agents to your code. Load AI agents from YAML configuration, set goals, and apply them to your current buffer.
+# 🤖 agent-finder.nvim
 
-## Features
+<img src="img/Agent-Finder.png" alt="Agent Finder Logo" width="200"/>
+
+*A Neovim plugin for managing and applying AI agents to your code*
+
+[![Dark Icon](img/Agent-Finder-DarkIcon.png)](img/Agent-Finder-DarkIcon.png)
+[![Light Icon](img/Agent-Finder-LightIcon.png)](img/Agent-Finder-LightIcon.png)
+
+Load AI agents from YAML configuration, set goals, and apply them to your current buffer.
+
+</div>
+
+## ✨ Features
 
 - 📁 **YAML Configuration**: Define AI agents in a simple YAML file
 - 🎯 **Goal Setting**: Set specific goals for AI agents to work on
@@ -11,7 +22,7 @@ A Neovim plugin for managing and applying AI agents to your code. Load AI agents
 - ⌨️ **Default Keymaps**: Convenient keybindings for common operations
 - 🐧 **Cross-platform**: Works on Linux, macOS, and Windows
 
-## Installation
+## 📦 Installation
 
 ### Using lazy.nvim
 
@@ -50,9 +61,9 @@ use {
 Plug 'your-username/agent-finder.nvim'
 ```
 
-## Configuration
+## ⚙️ Configuration
 
-### YAML Configuration File
+### 📄 YAML Configuration File
 
 Create a YAML file at `~/.config/nvim/agents.yaml` (or specify a custom path):
 
@@ -82,7 +93,7 @@ agents:
       for the provided code including function descriptions, parameters, and examples.
 ```
 
-### Plugin Configuration
+### 🔧 Plugin Configuration
 
 ```lua
 require('agent_finder').setup({
@@ -106,43 +117,43 @@ require('agent_finder').setup({
 })
 ```
 
-## Commands
+## 🎮 Commands
 
 | Command | Description |
 |---------|-------------|
-| `:AFLoad` | Load AI agents from YAML configuration |
-| `:AFGoal` | Set AI agent goal for current buffer |
-| `:AFApply` | Apply AI agent goal to current buffer |
-| `:AFEnv` | Export API keys to vim.env |
+| `:AFLoad` | 📥 Load AI agents from YAML configuration |
+| `:AFGoal` | 🎯 Set AI agent goal for current buffer |
+| `:AFApply` | ⚡ Apply AI agent goal to current buffer |
+| `:AFEnv` | 🔑 Export API keys to vim.env |
 
-## Default Keymaps
+## ⌨️ Default Keymaps
 
 | Keymap | Command | Description |
 |--------|---------|-------------|
-| `<leader>afl` | `:AFLoad` | Load agents |
-| `<leader>afg` | `:AFGoal` | Set goal |
-| `<leader>afa` | `:AFApply` | Apply goal |
+| `<leader>afl` | `:AFLoad` | 📥 Load agents |
+| `<leader>afg` | `:AFGoal` | 🎯 Set goal |
+| `<leader>afa` | `:AFApply` | ⚡ Apply goal |
 
-## Usage
+## 🚀 Usage
 
-1. **Load Agents**: First, load your AI agents from the YAML configuration:
+1. **📥 Load Agents**: First, load your AI agents from the YAML configuration:
    ```
    :AFLoad
    ```
 
-2. **Set Goal**: Define what you want the AI agent to do:
+2. **🎯 Set Goal**: Define what you want the AI agent to do:
    ```
    :AFGoal
    ```
    Enter your goal when prompted (e.g., "Review this function for potential bugs").
 
-3. **Apply Goal**: Apply the goal to your current buffer:
+3. **⚡ Apply Goal**: Apply the goal to your current buffer:
    ```
    :AFApply
    ```
    This will append a comment with your goal to the current file.
 
-4. **Export Environment**: If you need API keys in your environment:
+4. **🔑 Export Environment**: If you need API keys in your environment:
    ```
    :AFEnv
    ```
