@@ -1107,9 +1107,10 @@ Ask me for the first task to perform.]]
 end
 
 -- OpenAI API integration
-function M._call_openai_api(messages, model, api_key)
+function M._call_openai_api(messages, model, api_key, opts)
   model = model or "gpt-5-nano-2025-08-07"
   api_key = api_key or vim.env.OPENAI_API_KEY
+  opts = opts or {}
   
   if not api_key then
     return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY environment variable or configure it in agents.yaml" }
@@ -1131,25 +1132,34 @@ function M._call_openai_api(messages, model, api_key)
     end
   end
 
-  -- Build a single input string for the Responses API from chat messages
-  local input_text = ""
-  if type(messages) == "table" then
-    for _, msg in ipairs(messages) do
-      local role = msg.role or "user"
-      local text = msg.content or ""
-      input_text = input_text .. string.format("[%s] %s\n\n", role, text)
+  -- Build input for Responses API
+  local request_input = nil
+  if opts.prebuilt_input ~= nil then
+    request_input = opts.prebuilt_input
+  else
+    local input_text = ""
+    if type(messages) == "table" then
+      for _, msg in ipairs(messages) do
+        local role = msg.role or "user"
+        local text = msg.content or ""
+        input_text = input_text .. string.format("[%s] %s\n\n", role, text)
+      end
+    elseif type(messages) == "string" then
+      input_text = messages
     end
-  elseif type(messages) == "string" then
-    input_text = messages
+    request_input = vim.trim(input_text)
   end
-  input_text = vim.trim(input_text)
-
+  
   local request_body = {
     model = model,
-    input = input_text,
+    input = request_input,
     temperature = 0.7,
     max_output_tokens = 1000,
   }
+
+  if opts.instructions and type(opts.instructions) == "string" then
+    request_body.instructions = opts.instructions
+  end
 
   if openai_tools and #openai_tools > 0 then
     request_body.tools = openai_tools
@@ -1305,9 +1315,15 @@ function M._call_openai_api(messages, model, api_key)
   end
 
   if not content or content == "" then
+    if opts.return_raw then
+      return { success = true, content = "", raw = result }
+    end
     return { success = false, error = "Empty response from OpenAI API" }
   end
   
+  if opts.return_raw then
+    return { success = true, content = content, raw = result }
+  end
   return { success = true, content = content }
 end
 
@@ -1316,7 +1332,6 @@ function M._generate_ai_response(agent, user_message, chat_history)
   local api_keys = vim.b.agent_finder_api_keys or {}
   local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
   
-  -- Debug information
   if config.get('debug') then
     vim.notify('agent-finder.nvim: API keys from config: ' .. vim.fn.json_encode(api_keys), vim.log.levels.DEBUG)
     vim.notify('agent-finder.nvim: OpenAI key found: ' .. (openai_key and "yes" or "no"), vim.log.levels.DEBUG)
@@ -1326,48 +1341,98 @@ function M._generate_ai_response(agent, user_message, chat_history)
     return { success = false, error = "OpenAI API key not configured. Please run :AFLoad to load your agents.yaml configuration, or set OPENAI_API_KEY environment variable." }
   end
   
-  -- Load tools if not already loaded
+  -- Ensure tools are loaded (tools are added to request automatically inside _call_openai_api)
   local tools = M.get_tools()
   if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
     M.load_tools()
-    tools = M.get_tools()
   end
   
-  -- Build messages array
-  local messages = {}
-  
-  -- System message with agent prompt and tools
-  local system_message = agent.prompt
-  
-  if tools and type(tools) == "table" and not vim.tbl_isempty(tools) then
-    local tools_schema = M.generate_tools_schema()
-    local tools_json = vim.fn.json_encode(tools_schema)
-    system_message = system_message .. "\n\nYou have access to the following tools:\n" .. tools_json .. "\n\nYou can use these tools to help answer questions and perform tasks. When you want to use a tool, respond with a JSON object containing the tool name and parameters."
+  -- Build initial input list as per Responses API
+  local function build_history_text()
+    local parts = {}
+    if chat_history then
+      for _, msg in ipairs(chat_history) do
+        local role = msg.role or "user"
+        local text = msg.content or ""
+        table.insert(parts, string.format("[%s] %s", role, text))
+      end
+    end
+    table.insert(parts, string.format("[user] %s", user_message or ""))
+    return table.concat(parts, "\n\n")
   end
   
-  table.insert(messages, {
-    role = "system",
-    content = system_message
-  })
+  local input_list = {
+    { type = "input_text", text = build_history_text() }
+  }
   
-  -- Add chat history
-  if chat_history then
-    for _, msg in ipairs(chat_history) do
-      table.insert(messages, {
-        role = msg.role,
-        content = msg.content
-      })
+  local instructions = agent.prompt or ""
+  
+  local max_iters = 3
+  for _ = 1, max_iters do
+    local resp = M._call_openai_api(input_list, nil, openai_key, { prebuilt_input = input_list, instructions = instructions, return_raw = true })
+    if not resp.success then
+      return resp
+    end
+    
+    -- If we got text content, return it
+    if resp.content and resp.content ~= "" then
+      return { success = true, content = resp.content }
+    end
+    
+    local raw = resp.raw or {}
+    local output_items = {}
+    if type(raw.output) == "table" then
+      output_items = raw.output
+    elseif type(raw.content) == "table" then
+      output_items = raw.content
+    end
+    
+    -- Append model output back into the next request input
+    for _, item in ipairs(output_items) do
+      table.insert(input_list, item)
+    end
+    
+    -- Execute any function calls and append their outputs
+    local executed_any = false
+    for _, item in ipairs(output_items) do
+      if type(item) == "table" then
+        local item_type = item.type
+        if item_type == "function_call" or item_type == "tool_use" or item_type == "tool_call" then
+          local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
+          local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
+          local args_tbl = {}
+          if type(args) == "string" and args ~= "" then
+            local ok, parsed = pcall(vim.fn.json_decode, args)
+            if ok then args_tbl = parsed else args_tbl = { _raw = args } end
+          elseif type(args) == "table" then
+            args_tbl = args
+          end
+          if name and name ~= "" then
+            local tool_result = M.execute_tool(name, args_tbl)
+            local call_id = item.call_id or item.id or (name .. "_call")
+            local output_payload = tool_result
+            -- Ensure output is a JSON string
+            local output_str = nil
+            local ok_json, encoded = pcall(vim.fn.json_encode, output_payload)
+            if ok_json then output_str = encoded else output_str = tostring(output_payload) end
+            table.insert(input_list, {
+              type = "function_call_output",
+              call_id = call_id,
+              output = output_str,
+            })
+            executed_any = true
+          end
+        end
+      end
+    end
+    
+    -- If we executed a tool, loop to send the augmented input_list; otherwise break to avoid infinite loop
+    if not executed_any then
+      break
     end
   end
   
-  -- Add current user message
-  table.insert(messages, {
-    role = "user",
-    content = user_message
-  })
-  
-  -- Call OpenAI API
-  return M._call_openai_api(messages, "gpt-3.5-turbo", openai_key)
+  return { success = false, error = "No textual output from model after tool calls" }
 end
 
 -- Close chat
