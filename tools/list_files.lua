@@ -3,6 +3,24 @@
 
 local M = {}
 
+-- Simple table to string converter
+local function table_to_string(t, indent)
+  indent = indent or 0
+  local spaces = string.rep("  ", indent)
+  local result = "{\n"
+  for k, v in pairs(t) do
+    result = result .. spaces .. "  " .. tostring(k) .. " = "
+    if type(v) == "table" then
+      result = result .. table_to_string(v, indent + 1)
+    else
+      result = result .. tostring(v)
+    end
+    result = result .. ",\n"
+  end
+  result = result .. spaces .. "}"
+  return result
+end
+
 -- Debug logging function
 local function debug_log(message, ...)
   local config = require('agent_finder.config')
@@ -13,7 +31,7 @@ local function debug_log(message, ...)
       for i, arg in ipairs(args) do
         if i > 1 then arg_str = arg_str .. " " end
         if type(arg) == "table" then
-          arg_str = arg_str .. vim.inspect(arg)
+          arg_str = arg_str .. table_to_string(arg)
         else
           arg_str = arg_str .. tostring(arg)
         end
@@ -63,7 +81,11 @@ M.parameters = {
 function M.execute(params)
   debug_log("=== LIST_FILES TOOL EXECUTED ===")
   debug_log("Starting list_files tool execution")
-  debug_log("Input parameters:", vim.inspect(params))
+  debug_log("Input parameters:")
+  debug_log("  path:", params.path)
+  debug_log("  pattern:", params.pattern)
+  debug_log("  include_hidden:", params.include_hidden)
+  debug_log("  max_depth:", params.max_depth)
   
   local path = params.path or "."
   local pattern = params.pattern or "*"
