@@ -60,12 +60,10 @@ function M.execute(params)
   local include_hidden = params.include_hidden or false
   local max_depth = params.max_depth or 10
   
-  debug_log("Processed parameters:", {
-    path = path,
-    pattern = pattern,
-    include_hidden = include_hidden,
-    max_depth = max_depth
-  })
+  debug_log("Processed parameters - path:", path)
+  debug_log("Processed parameters - pattern:", pattern)
+  debug_log("Processed parameters - include_hidden:", include_hidden)
+  debug_log("Processed parameters - max_depth:", max_depth)
   
   -- Validate parameters
   if type(path) ~= "string" then
@@ -104,10 +102,8 @@ function M.execute(params)
   local workspace_root = vim.fn.getcwd()
   local target_path = workspace_root .. "/" .. path
   
-  debug_log("Path resolution:", {
-    workspace_root = workspace_root,
-    target_path = target_path
-  })
+  debug_log("Path resolution - workspace_root:", workspace_root)
+  debug_log("Path resolution - target_path:", target_path)
   
   -- Check if path exists
   debug_log("Checking if directory exists:", target_path)
@@ -159,11 +155,9 @@ function M.execute(params)
     glob_pattern = depth_pattern .. pattern
   end
   
-  debug_log("Glob pattern built:", {
-    original_pattern = pattern,
-    final_glob_pattern = glob_pattern,
-    max_depth = max_depth
-  })
+  debug_log("Glob pattern built - original_pattern:", pattern)
+  debug_log("Glob pattern built - final_glob_pattern:", glob_pattern)
+  debug_log("Glob pattern built - max_depth:", max_depth)
   
   -- Find files with error handling
   debug_log("Starting file search with globpath")
@@ -261,11 +255,9 @@ function M.execute(params)
   }
   
   debug_log("Tool execution completed successfully")
-  debug_log("Final result summary:", {
-    file_count = #files,
-    target_path = target_path,
-    pattern = pattern
-  })
+  debug_log("Final result summary - file_count:", #files)
+  debug_log("Final result summary - target_path:", target_path)
+  debug_log("Final result summary - pattern:", pattern)
   
   return result
 end
