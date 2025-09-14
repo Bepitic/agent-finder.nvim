@@ -837,15 +837,17 @@ function M._send_chat_message()
     -- Check if response contains tool usage
     local tool_used = false
     local tool_result = nil
+    local parsed_tool_name = nil
     
     -- Try to parse JSON tool usage from response
-    local tool_match = response.content:match("```json%s*({[^}]+})%s*```")
+    local tool_match = response.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
     if tool_match then
       local success, tool_data = pcall(vim.fn.json_decode, tool_match)
       if success and tool_data.tool_name and tool_data.parameters then
         -- Execute the tool
         tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
         tool_used = true
+        parsed_tool_name = tool_data.tool_name
       end
     end
     
@@ -869,6 +871,37 @@ function M._send_chat_message()
         local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
         for tool_line in string.gmatch(tool_result_json, "[^\r\n]+") do
           table.insert(response_lines, tool_line)
+        end
+        -- After showing tool result, make a follow-up model call including memory and tool output
+        local function build_history_text()
+          local parts = {}
+          if vim.b.agent_finder_chat_messages then
+            for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
+              local role = msg.role or "user"
+              local text = msg.content or ""
+              table.insert(parts, string.format("[%s] %s", role, text))
+            end
+          end
+          return table.concat(parts, "\n\n")
+        end
+        local followup_input = {
+          { type = "input_text", text = build_history_text() },
+          { type = "input_text", text = string.format("[tool] %s output:\n%s", parsed_tool_name or "tool", tool_result_json) }
+        }
+        local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
+        if followup and followup.success and followup.content and followup.content ~= "" then
+          table.insert(response_lines, "")
+          local first_follow = true
+          for line in string.gmatch(followup.content, "[^\r\n]+") do
+            if first_follow then
+              table.insert(response_lines, "@> " .. line)
+              first_follow = false
+            else
+              table.insert(response_lines, line)
+            end
+          end
+          -- Update history with assistant's follow-up content
+          table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = followup.content })
         end
       else
         table.insert(response_lines, "❌ **Tool Error:** " .. tool_result.error)
