@@ -897,7 +897,7 @@ function M.load_tools()
     local success, tool_data = pcall(function()
       -- Load the tool module
       local tool_name = vim.fn.fnamemodify(file, ':t:r')
-      local module_path = 'tools.' .. tool_name
+      local module_path = tool_name
       
       -- Add tools directory to package path temporarily
       local original_path = package.path
