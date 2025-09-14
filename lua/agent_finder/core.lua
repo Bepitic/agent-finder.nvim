@@ -770,36 +770,394 @@ function M._send_chat_message()
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
   
-  -- Simulate agent response (for now, just echo back)
-  local response = M._generate_agent_response(agent, user_message)
-  local agent_line = string.format("**%s:** %s", agent.display_name, response)
-  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { agent_line, "" })
+  -- Show "Thinking..." message
+  local thinking_line = string.format("**%s:** 🤔 Thinking...", agent.display_name)
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { thinking_line, "" })
   
-  -- Add to messages history
-  table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response })
+  -- Move cursor to end
+  local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
+  vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
+  
+  -- Generate agent response using OpenAI API with tools
+  local response = M._generate_ai_response(agent, user_message, vim.b.agent_finder_chat_messages)
+  
+  if response.success then
+    -- Remove "Thinking..." message
+    local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
+    vim.api.nvim_buf_set_lines(chat_bufnr, line_count - 2, line_count, false, {})
+    
+    -- Check if response contains tool usage
+    local tool_used = false
+    local tool_result = nil
+    
+    -- Try to parse JSON tool usage from response
+    local tool_match = response.content:match("```json%s*({[^}]+})%s*```")
+    if tool_match then
+      local success, tool_data = pcall(vim.fn.json_decode, tool_match)
+      if success and tool_data.tool_name and tool_data.parameters then
+        -- Execute the tool
+        tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
+        tool_used = true
+      end
+    end
+    
+    -- Format the response
+    local response_lines = {}
+    if tool_used and tool_result then
+      if tool_result.success then
+        response_lines = {
+          string.format("**%s:** %s", agent.display_name, response.content),
+          "",
+          "🔧 **Tool Result:**",
+          vim.fn.json_encode(tool_result.data or tool_result),
+          ""
+        }
+      else
+        response_lines = {
+          string.format("**%s:** %s", agent.display_name, response.content),
+          "",
+          "❌ **Tool Error:** " .. tool_result.error,
+          ""
+        }
+      end
+    else
+      response_lines = {
+        string.format("**%s:** %s", agent.display_name, response.content),
+        ""
+      }
+    end
+    
+    vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, response_lines)
+    
+    -- Add to messages history
+    table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response.content })
+  else
+    -- Remove "Thinking..." message
+    local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
+    vim.api.nvim_buf_set_lines(chat_bufnr, line_count - 2, line_count, false, {})
+    
+    -- Show error message
+    local error_line = string.format("**%s:** ❌ Error: %s", agent.display_name, response.error)
+    vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { error_line, "" })
+    
+    vim.notify('agent-finder.nvim: ' .. response.error, vim.log.levels.ERROR)
+  end
   
   -- Move cursor to end
   local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
   vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
 end
 
--- Generate agent response (placeholder for now)
-function M._generate_agent_response(agent, user_message)
-  -- This is a placeholder. In a real implementation, you would:
-  -- 1. Send the message to an AI API (OpenAI, Anthropic, etc.)
-  -- 2. Use the agent's prompt as the system message
-  -- 3. Return the actual AI response
+-- Load tools from tools directory
+function M.load_tools()
+  local tools = {}
   
-  local responses = {
-    "That's an interesting question! Let me think about that...",
-    "I understand what you're asking. Here's my perspective:",
-    "Great question! Based on my expertise, I would suggest:",
-    "I can help you with that. Let me break it down:",
-    "That's a good point. From my experience:",
+  -- Get tools directory path
+  local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
+  local tools_path = plugin_dir .. '/tools'
+  
+  -- Check if tools directory exists
+  if vim.fn.isdirectory(tools_path) == 0 then
+    vim.notify('agent-finder.nvim: Tools directory not found: ' .. tools_path, vim.log.levels.WARN)
+    return tools
+  end
+  
+  -- Find all .lua files in the tools directory
+  local tool_files = vim.fn.globpath(tools_path, '*.lua', false, true)
+  
+  for _, file in ipairs(tool_files) do
+    local success, tool_data = pcall(function()
+      -- Load the tool module
+      local tool_name = vim.fn.fnamemodify(file, ':t:r')
+      local module_path = 'tools.' .. tool_name
+      
+      -- Add tools directory to package path temporarily
+      local original_path = package.path
+      package.path = tools_path .. '/?.lua;' .. package.path
+      
+      local tool_module = require(module_path)
+      
+      -- Restore original package path
+      package.path = original_path
+      
+      return tool_module
+    end)
+    
+    if success and tool_data then
+      -- Use filename (without extension) as tool key
+      local tool_name = vim.fn.fnamemodify(file, ':t:r')
+      tools[tool_name] = tool_data
+      
+      if config.get('debug') then
+        vim.notify(
+          string.format('agent-finder.nvim: Loaded tool "%s" from %s', tool_name, file),
+          vim.log.levels.DEBUG
+        )
+      end
+    else
+      vim.notify(
+        string.format('agent-finder.nvim: Failed to load tool from %s: %s', file, tool_data or 'unknown error'),
+        vim.log.levels.WARN
+      )
+    end
+  end
+  
+  -- Store tools in buffer variable
+  vim.b.agent_finder_tools = tools
+  
+  return tools
+end
+
+-- Execute a tool with given parameters
+function M.execute_tool(tool_name, parameters)
+  local tools = vim.b.agent_finder_tools
+  
+  if not tools or not tools[tool_name] then
+    return { success = false, error = "Tool not found: " .. tool_name }
+  end
+  
+  local tool = tools[tool_name]
+  
+  -- Validate parameters
+  local validation_result = M._validate_tool_parameters(tool, parameters)
+  if not validation_result.success then
+    return validation_result
+  end
+  
+  -- Execute tool implementation
+  local success, result = pcall(function()
+    -- Check if tool has execute function
+    if not tool.execute or type(tool.execute) ~= "function" then
+      error("Tool does not have a valid execute function")
+    end
+    
+    -- Execute the tool
+    return tool.execute(parameters)
+  end)
+  
+  if not success then
+    return { success = false, error = "Tool execution failed: " .. tostring(result) }
+  end
+  
+  return result
+end
+
+-- Validate tool parameters
+function M._validate_tool_parameters(tool, parameters)
+  parameters = parameters or {}
+  
+  -- Check required parameters
+  if tool.parameters then
+    for param_name, param_def in pairs(tool.parameters) do
+      if param_def.required and parameters[param_name] == nil then
+        return { success = false, error = "Required parameter missing: " .. param_name }
+      end
+      
+      -- Type validation
+      if parameters[param_name] ~= nil then
+        local param_value = parameters[param_name]
+        local expected_type = param_def.type
+        
+        if expected_type == "string" and type(param_value) ~= "string" then
+          return { success = false, error = "Parameter '" .. param_name .. "' must be a string" }
+        elseif expected_type == "number" and type(param_value) ~= "number" then
+          return { success = false, error = "Parameter '" .. param_name .. "' must be a number" }
+        elseif expected_type == "boolean" and type(param_value) ~= "boolean" then
+          return { success = false, error = "Parameter '" .. param_name .. "' must be a boolean" }
+        end
+      end
+    end
+  end
+  
+  return { success = true }
+end
+
+-- Get available tools
+function M.get_tools()
+  return vim.b.agent_finder_tools or {}
+end
+
+-- Generate JSON schema for all tools
+function M.generate_tools_schema()
+  local tools = M.get_tools()
+  local schema = {}
+  
+  for tool_name, tool in pairs(tools) do
+    if tool.parameters then
+      local properties = {}
+      local required = {}
+      
+      for param_name, param_def in pairs(tool.parameters) do
+        properties[param_name] = {
+          type = param_def.type,
+          description = param_def.description or ""
+        }
+        
+        if param_def.default then
+          properties[param_name].default = param_def.default
+        end
+        
+        if param_def.required then
+          table.insert(required, param_name)
+        end
+      end
+      
+      schema[tool_name] = {
+        tool_name = tool_name,
+        description = tool.description or "",
+        parameters = {
+          type = "object",
+          properties = properties,
+          required = required
+        }
+      }
+    else
+      -- Tool with no parameters
+      schema[tool_name] = {
+        tool_name = tool_name,
+        description = tool.description or "",
+        parameters = {
+          type = "object",
+          properties = {},
+          required = {}
+        }
+      }
+    end
+  end
+  
+  return schema
+end
+
+-- Generate AI agent prompt with tool schemas
+function M.generate_agent_prompt()
+  local tools_schema = M.generate_tools_schema()
+  local tools_json = vim.fn.json_encode(tools_schema)
+  
+  local prompt = [[I'd like to simulate an AI agent that I'm designing. The agent will be built using these components:
+
+Goals:
+* Find potential code enhancements
+* Ensure changes are small and self-contained
+* Get user approval before making changes
+* Maintain existing interfaces
+
+Available Tools:
+]] .. tools_json .. [[
+
+At each step, your output must be an action to take using one of the available tools. 
+
+Stop and wait and I will type in the result of the action as my next message.
+
+Ask me for the first task to perform.]]
+  
+  return prompt
+end
+
+-- OpenAI API integration
+function M._call_openai_api(messages, model, api_key)
+  model = model or "gpt-3.5-turbo"
+  api_key = api_key or vim.env.OPENAI_API_KEY
+  
+  if not api_key then
+    return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY environment variable or configure it in agents.yaml" }
+  end
+  
+  local request_body = {
+    model = model,
+    messages = messages,
+    temperature = 0.7,
+    max_tokens = 1000
   }
   
-  local random_response = responses[math.random(#responses)]
-  return string.format("%s\n\n*Note: This is a placeholder response. In a real implementation, this would be an actual AI response using the agent's prompt and your message.*", random_response)
+  local json_body = vim.fn.json_encode(request_body)
+  
+  -- Make HTTP request to OpenAI API
+  local response = vim.fn.system({
+    'curl',
+    '-s',
+    '-X', 'POST',
+    'https://api.openai.com/v1/chat/completions',
+    '-H', 'Content-Type: application/json',
+    '-H', 'Authorization: Bearer ' .. api_key,
+    '-d', json_body
+  })
+  
+  if vim.v.shell_error ~= 0 then
+    return { success = false, error = "Failed to make API request to OpenAI" }
+  end
+  
+  local success, result = pcall(vim.fn.json_decode, response)
+  if not success then
+    return { success = false, error = "Failed to parse OpenAI API response" }
+  end
+  
+  if result.error then
+    return { success = false, error = "OpenAI API error: " .. (result.error.message or "Unknown error") }
+  end
+  
+  if not result.choices or #result.choices == 0 then
+    return { success = false, error = "No response from OpenAI API" }
+  end
+  
+  local content = result.choices[1].message.content
+  if not content then
+    return { success = false, error = "Empty response from OpenAI API" }
+  end
+  
+  return { success = true, content = content }
+end
+
+-- Generate AI response using OpenAI with tools integration
+function M._generate_ai_response(agent, user_message, chat_history)
+  local api_keys = vim.b.agent_finder_api_keys or {}
+  local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
+  
+  if not openai_key then
+    return { success = false, error = "OpenAI API key not configured" }
+  end
+  
+  -- Load tools if not already loaded
+  local tools = M.get_tools()
+  if vim.tbl_isempty(tools) then
+    M.load_tools()
+    tools = M.get_tools()
+  end
+  
+  -- Build messages array
+  local messages = {}
+  
+  -- System message with agent prompt and tools
+  local system_message = agent.prompt
+  
+  if not vim.tbl_isempty(tools) then
+    local tools_schema = M.generate_tools_schema()
+    local tools_json = vim.fn.json_encode(tools_schema)
+    system_message = system_message .. "\n\nYou have access to the following tools:\n" .. tools_json .. "\n\nYou can use these tools to help answer questions and perform tasks. When you want to use a tool, respond with a JSON object containing the tool name and parameters."
+  end
+  
+  table.insert(messages, {
+    role = "system",
+    content = system_message
+  })
+  
+  -- Add chat history
+  if chat_history then
+    for _, msg in ipairs(chat_history) do
+      table.insert(messages, {
+        role = msg.role,
+        content = msg.content
+      })
+    end
+  end
+  
+  -- Add current user message
+  table.insert(messages, {
+    role = "user",
+    content = user_message
+  })
+  
+  -- Call OpenAI API
+  return M._call_openai_api(messages, "gpt-3.5-turbo", openai_key)
 end
 
 -- Close chat
@@ -854,6 +1212,7 @@ function M.clear_state()
   vim.b.agent_finder_chat_bufnr = nil
   vim.b.agent_finder_chat_agent = nil
   vim.b.agent_finder_chat_messages = nil
+  vim.b.agent_finder_tools = nil
   
   vim.notify('agent-finder.nvim: Buffer state cleared', vim.log.levels.INFO)
 end
