@@ -66,6 +66,17 @@ end
 
 -- Set goal for current buffer
 function M.set_goal()
+  -- Auto-load agents if not already loaded
+  local agents = vim.b.agent_finder_agents
+  if not agents or vim.tbl_isempty(agents) then
+    vim.notify('agent-finder.nvim: Loading agents automatically...', vim.log.levels.INFO)
+    local load_success = M.load_agents()
+    if not load_success then
+      vim.notify('agent-finder.nvim: Failed to load agents automatically.', vim.log.levels.ERROR)
+      return false
+    end
+  end
+  
   local goal = vim.fn.input('Enter AI agent goal: ')
   
   if goal == '' then
@@ -279,9 +290,15 @@ end
 function M.list_agents()
   local agents = vim.b.agent_finder_agents
   
+  -- Auto-load agents if not already loaded
   if not agents or vim.tbl_isempty(agents) then
-    vim.notify('agent-finder.nvim: No agents loaded. Use :AFLoad first.', vim.log.levels.WARN)
-    return false
+    vim.notify('agent-finder.nvim: No agents loaded. Loading agents automatically...', vim.log.levels.INFO)
+    local load_success = M.load_agents()
+    if not load_success then
+      vim.notify('agent-finder.nvim: Failed to load agents automatically.', vim.log.levels.ERROR)
+      return false
+    end
+    agents = vim.b.agent_finder_agents
   end
   
   -- Check if telescope is available
@@ -301,9 +318,15 @@ end
 function M.select_agent()
   local agents = vim.b.agent_finder_agents
   
+  -- Auto-load agents if not already loaded
   if not agents or vim.tbl_isempty(agents) then
-    vim.notify('agent-finder.nvim: No agents loaded. Use :AFLoad first.', vim.log.levels.WARN)
-    return false
+    vim.notify('agent-finder.nvim: No agents loaded. Loading agents automatically...', vim.log.levels.INFO)
+    local load_success = M.load_agents()
+    if not load_success then
+      vim.notify('agent-finder.nvim: Failed to load agents automatically.', vim.log.levels.ERROR)
+      return false
+    end
+    agents = vim.b.agent_finder_agents
   end
   
   -- Check if telescope is available
