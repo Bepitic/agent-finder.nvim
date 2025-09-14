@@ -884,10 +884,21 @@ function M._send_chat_message()
           end
           return table.concat(parts, "\n\n")
         end
-        local followup_input = {
-          { type = "input_text", text = build_history_text() },
-          { type = "input_text", text = string.format("[tool] %s output:\n%s", parsed_tool_name or "tool", tool_result_json) }
-        }
+        local followup_input = {}
+        if vim.b.agent_finder_chat_messages then
+          for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
+            table.insert(followup_input, {
+              type = "message",
+              role = msg.role or "user",
+              content = { { type = "text", text = msg.content or "" } },
+            })
+          end
+        end
+        table.insert(followup_input, {
+          type = "message",
+          role = "user",
+          content = { { type = "text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
+        })
         local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
         if followup and followup.success and followup.content and followup.content ~= "" then
           table.insert(response_lines, "")
@@ -1170,17 +1181,24 @@ function M._call_openai_api(messages, model, api_key, opts)
   if opts.prebuilt_input ~= nil then
     request_input = opts.prebuilt_input
   else
-    local input_text = ""
+    -- Fallback: convert messages into an array of message items
     if type(messages) == "table" then
+      local items = {}
       for _, msg in ipairs(messages) do
-        local role = msg.role or "user"
-        local text = msg.content or ""
-        input_text = input_text .. string.format("[%s] %s\n\n", role, text)
+        table.insert(items, {
+          type = "message",
+          role = msg.role or "user",
+          content = { { type = "text", text = msg.content or "" } },
+        })
       end
+      request_input = items
     elseif type(messages) == "string" then
-      input_text = messages
+      request_input = {
+        { type = "message", role = "user", content = { { type = "text", text = messages } } }
+      }
+    else
+      request_input = {}
     end
-    request_input = vim.trim(input_text)
   end
   
   local request_body = {
@@ -1394,9 +1412,21 @@ function M._generate_ai_response(agent, user_message, chat_history)
     return table.concat(parts, "\n\n")
   end
   
-  local input_list = {
-    { type = "input_text", text = build_history_text() }
-  }
+  local input_list = {}
+  if chat_history then
+    for _, msg in ipairs(chat_history) do
+      table.insert(input_list, {
+        type = "message",
+        role = msg.role or "user",
+        content = { { type = "text", text = msg.content or "" } },
+      })
+    end
+  end
+  table.insert(input_list, {
+    type = "message",
+    role = "user",
+    content = { { type = "text", text = user_message or "" } },
+  })
   
   local instructions = agent.prompt or ""
   
