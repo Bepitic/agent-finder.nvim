@@ -1,6 +1,7 @@
 -- Core functionality for agent-finder.nvim
 
 local M = {}
+local config = require('agent_finder.config')
 
 -- Load agents from YAML configuration
 function M.load_agents()
