@@ -749,48 +749,31 @@ function M._send_chat_message()
   end
   
   -- Get user message (everything after the last separator)
-  local user_message_lines = {}
+  local user_message = ""
   for i = last_separator + 1, #lines do
     if lines[i] ~= "" and not lines[i]:match("^**%w+:**") then
-      table.insert(user_message_lines, lines[i])
+      user_message = user_message .. lines[i] .. "\n"
     end
   end
   
-  if #user_message_lines == 0 then
+  user_message = vim.trim(user_message)
+  
+  if user_message == "" then
     vim.notify('agent-finder.nvim: Please enter a message', vim.log.levels.WARN)
     return
   end
   
-  -- Join user message lines
-  local user_message = table.concat(user_message_lines, "\n")
-  
-  -- Add user message to chat (split into lines for proper formatting)
-  local user_chat_lines = {}
-  table.insert(user_chat_lines, "**You:**")
-  for _, line in ipairs(user_message_lines) do
-    table.insert(user_chat_lines, line)
-  end
-  table.insert(user_chat_lines, "") -- Add empty line after user message
-  
-  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, user_chat_lines)
+  -- Add user message to chat
+  local user_line = string.format("**You:** %s", user_message)
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { user_line, "" })
   
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
   
   -- Simulate agent response (for now, just echo back)
   local response = M._generate_agent_response(agent, user_message)
-  
-  -- Split response into lines and format properly
-  local response_lines = {}
-  table.insert(response_lines, string.format("**%s:**", agent.display_name))
-  
-  for line in string.gmatch(response, "[^\r\n]+") do
-    table.insert(response_lines, line)
-  end
-  
-  table.insert(response_lines, "") -- Add empty line after response
-  
-  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, response_lines)
+  local agent_line = string.format("**%s:** %s", agent.display_name, response)
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { agent_line, "" })
   
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response })
@@ -862,135 +845,6 @@ function M._save_chat_conversation()
   end
 end
 
--- Load tools from tools directory
-function M.load_tools()
-  local tools = {}
-  
-  -- Get tools directory path
-  local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
-  local tools_path = plugin_dir .. '/tools'
-  
-  -- Check if tools directory exists
-  if vim.fn.isdirectory(tools_path) == 0 then
-    vim.notify('agent-finder.nvim: Tools directory not found: ' .. tools_path, vim.log.levels.WARN)
-    return tools
-  end
-  
-  -- Find all .lua files in the tools directory
-  local tool_files = vim.fn.globpath(tools_path, '*.lua', false, true)
-  
-  for _, file in ipairs(tool_files) do
-    local success, tool_data = pcall(function()
-      -- Load the tool module
-      local tool_name = vim.fn.fnamemodify(file, ':t:r')
-      local module_path = 'tools.' .. tool_name
-      
-      -- Add tools directory to package path temporarily
-      local original_path = package.path
-      package.path = tools_path .. '/?.lua;' .. package.path
-      
-      local tool_module = require(module_path)
-      
-      -- Restore original package path
-      package.path = original_path
-      
-      return tool_module
-    end)
-    
-    if success and tool_data then
-      -- Use filename (without extension) as tool key
-      local tool_name = vim.fn.fnamemodify(file, ':t:r')
-      tools[tool_name] = tool_data
-      
-      if config.get('debug') then
-        vim.notify(
-          string.format('agent-finder.nvim: Loaded tool "%s" from %s', tool_name, file),
-          vim.log.levels.DEBUG
-        )
-      end
-    else
-      vim.notify(
-        string.format('agent-finder.nvim: Failed to load tool from %s: %s', file, tool_data or 'unknown error'),
-        vim.log.levels.WARN
-      )
-    end
-  end
-  
-  -- Store tools in buffer variable
-  vim.b.agent_finder_tools = tools
-  
-  return tools
-end
-
--- Execute a tool with given parameters
-function M.execute_tool(tool_name, parameters)
-  local tools = vim.b.agent_finder_tools
-  
-  if not tools or not tools[tool_name] then
-    return { success = false, error = "Tool not found: " .. tool_name }
-  end
-  
-  local tool = tools[tool_name]
-  
-  -- Validate parameters
-  local validation_result = M._validate_tool_parameters(tool, parameters)
-  if not validation_result.success then
-    return validation_result
-  end
-  
-  -- Execute tool implementation
-  local success, result = pcall(function()
-    -- Check if tool has execute function
-    if not tool.execute or type(tool.execute) ~= "function" then
-      error("Tool does not have a valid execute function")
-    end
-    
-    -- Execute the tool
-    return tool.execute(parameters)
-  end)
-  
-  if not success then
-    return { success = false, error = "Tool execution failed: " .. tostring(result) }
-  end
-  
-  return result
-end
-
--- Validate tool parameters
-function M._validate_tool_parameters(tool, parameters)
-  parameters = parameters or {}
-  
-  -- Check required parameters
-  if tool.parameters then
-    for param_name, param_def in pairs(tool.parameters) do
-      if param_def.required and parameters[param_name] == nil then
-        return { success = false, error = "Required parameter missing: " .. param_name }
-      end
-      
-      -- Type validation
-      if parameters[param_name] ~= nil then
-        local param_value = parameters[param_name]
-        local expected_type = param_def.type
-        
-        if expected_type == "string" and type(param_value) ~= "string" then
-          return { success = false, error = "Parameter '" .. param_name .. "' must be a string" }
-        elseif expected_type == "number" and type(param_value) ~= "number" then
-          return { success = false, error = "Parameter '" .. param_name .. "' must be a number" }
-        elseif expected_type == "boolean" and type(param_value) ~= "boolean" then
-          return { success = false, error = "Parameter '" .. param_name .. "' must be a boolean" }
-        end
-      end
-    end
-  end
-  
-  return { success = true }
-end
-
--- Get available tools
-function M.get_tools()
-  return vim.b.agent_finder_tools or {}
-end
-
 -- Clear buffer state
 function M.clear_state()
   vim.b.agent_finder_agents = nil
@@ -1000,7 +854,6 @@ function M.clear_state()
   vim.b.agent_finder_chat_bufnr = nil
   vim.b.agent_finder_chat_agent = nil
   vim.b.agent_finder_chat_messages = nil
-  vim.b.agent_finder_tools = nil
   
   vim.notify('agent-finder.nvim: Buffer state cleared', vim.log.levels.INFO)
 end

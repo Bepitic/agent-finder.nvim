@@ -72,13 +72,15 @@ Create a YAML file at `~/.config/nvim/agents.yaml` (or specify a custom path):
 ```yaml
 # API Keys Configuration
 api_keys:
-  openai: "your-openai-api-key-here"
+  openai: "your-openai-api-key-here"  # Required for chat functionality
   anthropic: "your-anthropic-api-key-here"
 
 # Agents Directory
 # The plugin will automatically load all .yaml files from the agents/ directory
 agents_directory: agents/
 ```
+
+**Note**: The `openai` API key is required for the chat interface to work with real AI responses. Without it, the chat will show error messages.
 
 Then create individual agent files in the `agents/` directory:
 
@@ -172,6 +174,8 @@ require('agent_finder').setup({
 | `:AFChat` | 💬 Start chat with AI agent (split window) |
 | `:AFTools` | 🔧 Load available tools |
 | `:AFTool` | ⚙️ Execute a specific tool |
+| `:AFSchema` | 📋 Export tools schema as JSON |
+| `:AFPrompt` | 🤖 Generate AI agent prompt with tools |
 | `:AFGoal` | 🎯 Set AI agent goal for current buffer |
 | `:AFApply` | ⚡ Apply AI agent goal to current buffer |
 | `:AFEnv` | 🔑 Export API keys to vim.env |
@@ -185,6 +189,8 @@ require('agent_finder').setup({
 | `<leader>afs` | `:AFSelect` | 🎯 Select agent |
 | `<leader>afc` | `:AFChat` | 💬 Start chat |
 | `<leader>aft` | `:AFTools` | 🔧 Load tools |
+| `<leader>afS` | `:AFSchema` | 📋 Export tools schema |
+| `<leader>afp` | `:AFPrompt` | 🤖 Generate AI prompt |
 | `<leader>afg` | `:AFGoal` | 🎯 Set goal |
 | `<leader>afa` | `:AFApply` | ⚡ Apply goal |
 
@@ -241,9 +247,31 @@ The plugin includes a full chat interface for interactive conversations with AI 
 
 - **Split Window**: Opens a vertical split with the chat interface
 - **Agent Selection**: Choose any agent from your configuration
-- **Real-time Chat**: Type messages and get responses
+- **Real-time Chat**: Type messages and get responses from OpenAI
 - **Message History**: Full conversation history is maintained
 - **Save Conversations**: Export chat logs to markdown files
+- **OpenAI Integration**: Uses GPT-3.5-turbo for real AI responses
+
+#### OpenAI Configuration
+
+To use the chat interface with real AI responses, you need to configure your OpenAI API key:
+
+1. **Set API Key in agents.yaml**:
+   ```yaml
+   api_keys:
+     openai: "your-openai-api-key-here"
+   ```
+
+2. **Or set environment variable**:
+   ```bash
+   export OPENAI_API_KEY="your-openai-api-key-here"
+   ```
+
+3. **Load agents and start chatting**:
+   ```vim
+   :AFLoad    " Load agents with API keys
+   :AFChat    " Start chat interface
+   ```
 
 #### Chat Controls
 
@@ -277,7 +305,11 @@ The plugin includes a powerful tools system for extending functionality:
 
 - **`:AFTools`**: Load all available tools
 - **`:AFTool <name>`**: Execute a specific tool
+- **`:AFSchema`**: Export tools schema as JSON
+- **`:AFPrompt`**: Generate AI agent prompt with tools
 - **`<leader>aft`**: Quick keymap to load tools
+- **`<leader>afS`**: Quick keymap to export tools schema
+- **`<leader>afp`**: Quick keymap to generate AI prompt
 
 #### Creating Custom Tools
 
@@ -332,6 +364,68 @@ function M.execute(params)
 end
 
 return M
+```
+
+### AI Integration
+
+The plugin provides powerful AI integration features for working with external AI models:
+
+#### Tool Schema Export
+
+Generate JSON schemas for all available tools that can be sent to AI models:
+
+```vim
+:AFSchema    " Export tools schema as JSON
+<leader>afS  " Quick keymap
+```
+
+This creates a JSON schema like:
+```json
+{
+  "list_files": {
+    "tool_name": "list_files",
+    "description": "Lists all files in the current workspace directory with optional filtering",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "description": "Directory path to list files from" },
+        "pattern": { "type": "string", "description": "File pattern to match" },
+        "include_hidden": { "type": "boolean", "description": "Whether to include hidden files" },
+        "max_depth": { "type": "number", "description": "Maximum directory depth to search" }
+      },
+      "required": []
+    }
+  }
+}
+```
+
+#### AI Agent Prompt Generation
+
+Generate a complete prompt for AI agents with tool schemas:
+
+```vim
+:AFPrompt    " Generate AI agent prompt
+<leader>afp  " Quick keymap
+```
+
+This creates a prompt like:
+```
+I'd like to simulate an AI agent that I'm designing. The agent will be built using these components:
+
+Goals:
+* Find potential code enhancements
+* Ensure changes are small and self-contained
+* Get user approval before making changes
+* Maintain existing interfaces
+
+Available Tools:
+[Tool schemas in JSON format]
+
+At each step, your output must be an action to take using one of the available tools. 
+
+Stop and wait and I will type in the result of the action as my next message.
+
+Ask me for the first task to perform.
 ```
 
 ### Telescope Integration

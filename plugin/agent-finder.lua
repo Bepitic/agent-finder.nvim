@@ -111,6 +111,65 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Execute a tool', nargs = 1 })
+
+  vim.api.nvim_create_user_command('AFSchema', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      -- Load tools if not already loaded
+      local tools = agent_finder.get_tools()
+      if vim.tbl_isempty(tools) then
+        agent_finder.load_tools()
+      end
+      
+      local schema = agent_finder.generate_tools_schema()
+      local json_schema = vim.fn.json_encode(schema)
+      
+      -- Create a new buffer to display the schema
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      local lines = vim.split(json_schema, '\n')
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+      vim.api.nvim_buf_set_option(bufnr, 'filetype', 'json')
+      vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
+      
+      -- Open the buffer in a split
+      vim.cmd('vsplit')
+      vim.api.nvim_win_set_buf(0, bufnr)
+      vim.api.nvim_buf_set_name(bufnr, 'agent-finder-tools-schema.json')
+      
+      vim.notify('agent-finder.nvim: Tool schema exported to buffer', vim.log.levels.INFO)
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Export tools schema as JSON' })
+
+  vim.api.nvim_create_user_command('AFPrompt', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      -- Load tools if not already loaded
+      local tools = agent_finder.get_tools()
+      if vim.tbl_isempty(tools) then
+        agent_finder.load_tools()
+      end
+      
+      local prompt = agent_finder.generate_agent_prompt()
+      
+      -- Create a new buffer to display the prompt
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      local lines = vim.split(prompt, '\n')
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+      vim.api.nvim_buf_set_option(bufnr, 'filetype', 'markdown')
+      vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
+      
+      -- Open the buffer in a split
+      vim.cmd('vsplit')
+      vim.api.nvim_win_set_buf(0, bufnr)
+      vim.api.nvim_buf_set_name(bufnr, 'agent-finder-ai-prompt.md')
+      
+      vim.notify('agent-finder.nvim: AI agent prompt generated', vim.log.levels.INFO)
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Generate AI agent prompt with tools' })
 end
 
 -- Set up default keymaps
@@ -126,6 +185,8 @@ local function setup_keymaps()
     vim.keymap.set('n', '<leader>afL', '<cmd>AFList<cr>', vim.tbl_extend('force', opts, { desc = 'List agents' }))
     vim.keymap.set('n', '<leader>afc', '<cmd>AFChat<cr>', vim.tbl_extend('force', opts, { desc = 'Start chat' }))
     vim.keymap.set('n', '<leader>aft', '<cmd>AFTools<cr>', vim.tbl_extend('force', opts, { desc = 'Load tools' }))
+    vim.keymap.set('n', '<leader>afS', '<cmd>AFSchema<cr>', vim.tbl_extend('force', opts, { desc = 'Export tools schema' }))
+    vim.keymap.set('n', '<leader>afp', '<cmd>AFPrompt<cr>', vim.tbl_extend('force', opts, { desc = 'Generate AI prompt' }))
   end
 end
 

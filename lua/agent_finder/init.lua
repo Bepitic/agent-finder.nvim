@@ -64,6 +64,14 @@ function M.get_tools()
   return core.get_tools()
 end
 
+function M.generate_tools_schema()
+  return core.generate_tools_schema()
+end
+
+function M.generate_agent_prompt()
+  return core.generate_agent_prompt()
+end
+
 function M.clear_state()
   return core.clear_state()
 end
