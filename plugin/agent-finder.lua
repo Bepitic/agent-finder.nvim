@@ -262,6 +262,79 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Debug YAML parsing and API key loading' })
+
+  -- Hot-reload this plugin's Lua modules without restarting Neovim
+  vim.api.nvim_create_user_command('AFReload', function()
+    local function notify(msg, level)
+      vim.notify('agent-finder.nvim: ' .. msg, level or vim.log.levels.INFO)
+    end
+
+    -- Prefer plenary.reload for deep reload if available
+    local used_plenary = false
+    local ok_reload, reload = pcall(require, 'plenary.reload')
+    if ok_reload and type(reload.reload_module) == 'function' then
+      pcall(reload.reload_module, 'agent_finder', true)
+      used_plenary = true
+    end
+
+    -- Fallback/manual: unload known modules and tools
+    if not used_plenary then
+      local unload = {
+        'agent_finder',
+        'agent_finder.core',
+        'agent_finder.config',
+        'agent_finder.yaml',
+      }
+      for _, name in ipairs(unload) do
+        package.loaded[name] = nil
+      end
+
+      local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':h:h')
+      local tools_path = plugin_dir .. '/tools'
+      if vim.fn.isdirectory(tools_path) == 1 then
+        local tool_files = vim.fn.globpath(tools_path, '*.lua', false, true)
+        for _, file in ipairs(tool_files) do
+          local tool_name = vim.fn.fnamemodify(file, ':t:r')
+          package.loaded[tool_name] = nil
+        end
+      end
+    end
+
+    local ok, _ = pcall(require, 'agent_finder')
+    if ok then
+      notify('Reloaded modules successfully')
+    else
+      notify('Reload failed. Check :messages for details', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Reload agent-finder.nvim without restarting Neovim' })
+
+  -- Auto-reload after common plugin manager events
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'PackerComplete',
+    desc = 'Reload agent-finder.nvim after Packer finishes',
+    callback = function()
+      pcall(vim.cmd, 'silent! AFReload')
+    end,
+  })
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'LazyDone',
+    desc = 'Reload agent-finder.nvim after lazy.nvim finishes',
+    callback = function()
+      pcall(vim.cmd, 'silent! AFReload')
+    end,
+  })
+
+  -- While developing this plugin locally, reload on save of plugin files
+  vim.api.nvim_create_autocmd('BufWritePost', {
+    desc = 'Reload agent-finder.nvim when its files are edited',
+    callback = function(args)
+      local plugin_dir = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':h:h')
+      local file = vim.fn.fnamemodify(args.file or '', ':p')
+      if file ~= '' and file:find(plugin_dir, 1, true) == 1 then
+        pcall(vim.cmd, 'silent! AFReload')
+      end
+    end,
+  })
 end
 
 -- Set up default keymaps
@@ -280,6 +353,7 @@ local function setup_keymaps()
     vim.keymap.set('n', '<leader>afS', '<cmd>AFSchema<cr>', vim.tbl_extend('force', opts, { desc = 'Export tools schema' }))
     vim.keymap.set('n', '<leader>afp', '<cmd>AFPrompt<cr>', vim.tbl_extend('force', opts, { desc = 'Generate AI prompt' }))
     vim.keymap.set('n', '<leader>af?', '<cmd>AFStatus<cr>', vim.tbl_extend('force', opts, { desc = 'Show status' }))
+    vim.keymap.set('n', '<leader>afr', '<cmd>AFReload<cr>', vim.tbl_extend('force', opts, { desc = 'Reload agent-finder.nvim' }))
   end
 end
 
