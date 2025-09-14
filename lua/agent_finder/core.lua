@@ -1440,9 +1440,34 @@ function M._generate_ai_response(agent, user_message, chat_history)
       return resp
     end
     
-    -- If we got text content, return it
+    -- If we got text content, check if it contains a tool call
     if resp.content and resp.content ~= "" then
-      return { success = true, content = resp.content }
+      -- Check if the content contains a JSON tool call
+      local tool_match = resp.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
+      if tool_match then
+        local success, tool_data = pcall(vim.fn.json_decode, tool_match)
+        if success and tool_data.tool_name and tool_data.parameters then
+          -- Execute the tool
+          local tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
+          
+          -- Add the tool result to the input list for the next iteration
+          local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+          table.insert(input_list, {
+            type = "message",
+            role = "assistant",
+            content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", tool_data.tool_name, tool_result_json) } },
+          })
+          
+          -- Continue the loop to get the agent's response to the tool result
+          -- (fall through to the rest of the loop)
+        else
+          -- If tool parsing failed, return the content as-is
+          return { success = true, content = resp.content }
+        end
+      else
+        -- If no tool call found, return the content
+        return { success = true, content = resp.content }
+      end
     end
     
     local raw = resp.raw or {}
