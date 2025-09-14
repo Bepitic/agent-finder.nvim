@@ -26,6 +26,11 @@ function M.load_agents()
     return false
   end
   
+  -- Debug: Show what was parsed
+  if config.get('debug') then
+    vim.notify('agent-finder.nvim: Parsed YAML data: ' .. vim.fn.json_encode(data), vim.log.levels.DEBUG)
+  end
+  
   -- Load agents from individual files if agents_directory is specified
   local agents = {}
   if data.agents_directory then
@@ -53,6 +58,13 @@ function M.load_agents()
   -- Store API keys if present
   if data.api_keys then
     vim.b.agent_finder_api_keys = data.api_keys
+    if config.get('debug') then
+      vim.notify('agent-finder.nvim: API keys loaded: ' .. vim.fn.json_encode(data.api_keys), vim.log.levels.DEBUG)
+    end
+  else
+    if config.get('debug') then
+      vim.notify('agent-finder.nvim: No API keys found in data: ' .. vim.fn.json_encode(data), vim.log.levels.DEBUG)
+    end
   end
   
   local agent_count = (agents and type(agents) == "table") and vim.tbl_count(agents) or 0

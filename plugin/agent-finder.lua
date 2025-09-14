@@ -231,6 +231,37 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Show agent-finder status and configuration' })
+
+  vim.api.nvim_create_user_command('AFDebug', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      local config = require('agent_finder.config')
+      local yaml = require('agent_finder.yaml')
+      
+      -- Get the agents file path
+      local agents_file = config.get('agents_file')
+      
+      vim.notify('agent-finder.nvim: Testing YAML parsing...', vim.log.levels.INFO)
+      vim.notify('agent-finder.nvim: Agents file: ' .. agents_file, vim.log.levels.INFO)
+      
+      -- Test YAML parsing
+      local data, err = yaml.parse_file(agents_file)
+      if data then
+        vim.notify('agent-finder.nvim: YAML parsing successful!', vim.log.levels.INFO)
+        vim.notify('agent-finder.nvim: Parsed data: ' .. vim.fn.json_encode(data), vim.log.levels.INFO)
+        
+        if data.api_keys then
+          vim.notify('agent-finder.nvim: API keys found: ' .. vim.fn.json_encode(data.api_keys), vim.log.levels.INFO)
+        else
+          vim.notify('agent-finder.nvim: No API keys found in parsed data', vim.log.levels.WARN)
+        end
+      else
+        vim.notify('agent-finder.nvim: YAML parsing failed: ' .. (err or 'unknown error'), vim.log.levels.ERROR)
+      end
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Debug YAML parsing and API key loading' })
 end
 
 -- Set up default keymaps
