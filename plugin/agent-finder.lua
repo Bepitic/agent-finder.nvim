@@ -170,6 +170,62 @@ local function setup_commands()
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
   end, { desc = 'Generate AI agent prompt with tools' })
+
+  vim.api.nvim_create_user_command('AFStatus', function()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      local agents = agent_finder.get_agents()
+      local api_keys = vim.b.agent_finder_api_keys or {}
+      local tools = agent_finder.get_tools()
+      
+      local status = {
+        "=== Agent Finder Status ===",
+        "",
+        "Agents loaded: " .. (agents and vim.tbl_count(agents) or 0),
+        "API keys loaded: " .. (api_keys and vim.tbl_count(api_keys) or 0),
+        "Tools loaded: " .. (tools and vim.tbl_count(tools) or 0),
+        "",
+        "OpenAI API key: " .. (api_keys.openai and "✅ Configured" or "❌ Not found"),
+        "Environment OPENAI_API_KEY: " .. (vim.env.OPENAI_API_KEY and "✅ Set" or "❌ Not set"),
+        "",
+        "Available agents:",
+      }
+      
+      if agents and not vim.tbl_isempty(agents) then
+        for name, agent in pairs(agents) do
+          table.insert(status, "  - " .. name .. ": " .. (agent.description or "No description"))
+        end
+      else
+        table.insert(status, "  No agents loaded")
+      end
+      
+      table.insert(status, "")
+      table.insert(status, "Available tools:")
+      
+      if tools and not vim.tbl_isempty(tools) then
+        for name, tool in pairs(tools) do
+          table.insert(status, "  - " .. name .. ": " .. (tool.description or "No description"))
+        end
+      else
+        table.insert(status, "  No tools loaded")
+      end
+      
+      -- Display status in a buffer
+      local bufnr = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, status)
+      vim.api.nvim_buf_set_option(bufnr, 'filetype', 'markdown')
+      vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
+      
+      -- Open the buffer in a split
+      vim.cmd('vsplit')
+      vim.api.nvim_win_set_buf(0, bufnr)
+      vim.api.nvim_buf_set_name(bufnr, 'agent-finder-status.md')
+      
+      vim.notify('agent-finder.nvim: Status displayed', vim.log.levels.INFO)
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
+  end, { desc = 'Show agent-finder status and configuration' })
 end
 
 -- Set up default keymaps
@@ -187,6 +243,7 @@ local function setup_keymaps()
     vim.keymap.set('n', '<leader>aft', '<cmd>AFTools<cr>', vim.tbl_extend('force', opts, { desc = 'Load tools' }))
     vim.keymap.set('n', '<leader>afS', '<cmd>AFSchema<cr>', vim.tbl_extend('force', opts, { desc = 'Export tools schema' }))
     vim.keymap.set('n', '<leader>afp', '<cmd>AFPrompt<cr>', vim.tbl_extend('force', opts, { desc = 'Generate AI prompt' }))
+    vim.keymap.set('n', '<leader>af?', '<cmd>AFStatus<cr>', vim.tbl_extend('force', opts, { desc = 'Show status' }))
   end
 end
 
