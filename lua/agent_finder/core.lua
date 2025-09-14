@@ -1178,7 +1178,7 @@ function M._call_openai_api(messages, model, api_key)
     return { success = false, error = "Failed to parse OpenAI API response" }
   end
   
-  if result.error then
+  if result.error ~= nil and result.error ~= vim.NIL then
     local err_msg = "Unknown error"
     if type(result.error) == "table" then
       err_msg = result.error.message or result.error.type or vim.fn.json_encode(result.error)
