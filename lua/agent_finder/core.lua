@@ -787,14 +787,32 @@ function M._send_chat_message()
     return
   end
   
+  -- Remove the raw typed lines from the buffer to avoid duplication
+  for i = #lines, last_separator + 1, -1 do
+    local l = lines[i]
+    if l ~= ""
+      and not l:match("^##%s")
+      and not l:match("^-%s")
+      and not l:match("^@> ")
+      and not l:match("^%(%w+%)>%s")
+    then
+      vim.api.nvim_buf_set_lines(chat_bufnr, i - 1, i, false, {})
+    end
+  end
+
   -- Add user message to chat (split into lines for proper formatting)
   local user_lines = {}
-  table.insert(user_lines, "(You)>")
+  local first_user = true
   for line in string.gmatch(user_message, "[^\r\n]+") do
-    table.insert(user_lines, line)
+    if first_user then
+      table.insert(user_lines, "(You)> " .. line)
+      first_user = false
+    else
+      table.insert(user_lines, line)
+    end
   end
   table.insert(user_lines, "") -- Add empty line after user message
-  
+
   vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, user_lines)
   
   -- Add to messages history
@@ -833,11 +851,15 @@ function M._send_chat_message()
     
     -- Format the response
     local response_lines = {}
-    table.insert(response_lines, "@>")
-    
-    -- Split AI response into lines
+    local first_resp = true
+    -- Split AI response into lines and prefix the first with @>
     for line in string.gmatch(response.content, "[^\r\n]+") do
-      table.insert(response_lines, line)
+      if first_resp then
+        table.insert(response_lines, "@> " .. line)
+        first_resp = false
+      else
+        table.insert(response_lines, line)
+      end
     end
     
     if tool_used and tool_result then
@@ -866,8 +888,7 @@ function M._send_chat_message()
     
     -- Show error message
     local error_lines = {}
-    table.insert(error_lines, "@>")
-    table.insert(error_lines, "❌ Error: " .. response.error)
+    table.insert(error_lines, "@> ❌ Error: " .. response.error)
     table.insert(error_lines, "")
     
     vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, error_lines)
