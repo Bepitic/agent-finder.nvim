@@ -890,14 +890,14 @@ function M._send_chat_message()
             table.insert(followup_input, {
               type = "message",
               role = msg.role or "user",
-              content = { { type = "text", text = msg.content or "" } },
+              content = { { type = "input_text", text = msg.content or "" } },
             })
           end
         end
         table.insert(followup_input, {
           type = "message",
           role = "user",
-          content = { { type = "text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
+          content = { { type = "input_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
         })
         local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
         if followup and followup.success and followup.content and followup.content ~= "" then
@@ -1188,13 +1188,13 @@ function M._call_openai_api(messages, model, api_key, opts)
         table.insert(items, {
           type = "message",
           role = msg.role or "user",
-          content = { { type = "text", text = msg.content or "" } },
+          content = { { type = "input_text", text = msg.content or "" } },
         })
       end
       request_input = items
     elseif type(messages) == "string" then
       request_input = {
-        { type = "message", role = "user", content = { { type = "text", text = messages } } }
+        { type = "message", role = "user", content = { { type = "input_text", text = messages } } }
       }
     else
       request_input = {}
