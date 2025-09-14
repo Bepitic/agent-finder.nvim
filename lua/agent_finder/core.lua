@@ -1544,6 +1544,43 @@ function M._generate_ai_response(agent, user_message, chat_history)
     end
   end
   
+  -- Check if we have any content to return from the last response
+  local final_content = ""
+  if resp then
+    debug_log("Checking final response for content:", vim.inspect(resp))
+    -- Check for content in the response
+    if resp.content and resp.content ~= "" then
+      debug_log("Found content in resp.content:", resp.content)
+      final_content = resp.content
+    elseif resp.raw then
+      debug_log("Checking raw response structure:", vim.inspect(resp.raw))
+      -- Check for content in the raw response structure
+      local raw = resp.raw
+      if raw.content and type(raw.content) == "string" and raw.content ~= "" then
+        debug_log("Found content in raw.content:", raw.content)
+        final_content = raw.content
+      elseif raw.output and type(raw.output) == "table" then
+        debug_log("Extracting content from raw.output items:", #raw.output)
+        -- Extract text content from output items
+        for _, item in ipairs(raw.output) do
+          if type(item) == "table" and item.type == "text" and item.text then
+            debug_log("Found text item:", item.text)
+            final_content = final_content .. item.text
+          elseif type(item) == "table" and item.type == "output_text" and item.text then
+            debug_log("Found output_text item:", item.text)
+            final_content = final_content .. item.text
+          end
+        end
+      end
+    end
+  end
+  
+  debug_log("Final content extracted:", final_content)
+  if final_content ~= "" then
+    debug_log("Returning successful response with content")
+    return { success = true, content = final_content }
+  end
+  
   return { success = false, error = "No textual output from model after tool calls" }
 end
 

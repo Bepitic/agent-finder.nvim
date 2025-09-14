@@ -3,6 +3,18 @@
 
 local M = {}
 
+-- Debug logging function
+local function debug_log(message, ...)
+  local config = require('agent_finder.config')
+  if config and config.get and config.get('debug') then
+    if ... then
+      print("DEBUG [list_files]:", message, ...)
+    else
+      print("DEBUG [list_files]:", message)
+    end
+  end
+end
+
 -- Tool metadata
 M.name = "List Workspace Files"
 M.description = "Lists all files in the current workspace directory with optional filtering"
@@ -39,10 +51,20 @@ M.parameters = {
 
 -- Tool implementation
 function M.execute(params)
+  debug_log("Starting list_files tool execution")
+  debug_log("Input parameters:", vim.inspect(params))
+  
   local path = params.path or "."
   local pattern = params.pattern or "*"
   local include_hidden = params.include_hidden or false
   local max_depth = params.max_depth or 10
+  
+  debug_log("Processed parameters:", {
+    path = path,
+    pattern = pattern,
+    include_hidden = include_hidden,
+    max_depth = max_depth
+  })
   
   -- Validate parameters
   if type(path) ~= "string" then
@@ -81,16 +103,25 @@ function M.execute(params)
   local workspace_root = vim.fn.getcwd()
   local target_path = workspace_root .. "/" .. path
   
+  debug_log("Path resolution:", {
+    workspace_root = workspace_root,
+    target_path = target_path
+  })
+  
   -- Check if path exists
+  debug_log("Checking if directory exists:", target_path)
   if vim.fn.isdirectory(target_path) == 0 then
+    debug_log("Directory does not exist, checking if it's a file")
     -- Check if it's a file instead of directory
     if vim.fn.filereadable(target_path) == 1 then
+      debug_log("Path is a file, not a directory")
       return { 
         success = false, 
         error = "Path is a file, not a directory: " .. target_path,
         error_type = "not_directory"
       }
     else
+      debug_log("Path does not exist at all")
       return { 
         success = false, 
         error = "Directory does not exist: " .. target_path,
@@ -99,9 +130,12 @@ function M.execute(params)
     end
   end
   
+  debug_log("Directory exists, checking permissions")
   -- Check if we have read permissions for the directory
   local read_permission = vim.fn.getfperm(target_path)
+  debug_log("Directory permissions:", read_permission)
   if not read_permission or not read_permission:match("r") then
+    debug_log("No read permission for directory")
     return { 
       success = false, 
       error = "No read permission for directory: " .. target_path,
@@ -124,12 +158,20 @@ function M.execute(params)
     glob_pattern = depth_pattern .. pattern
   end
   
+  debug_log("Glob pattern built:", {
+    original_pattern = pattern,
+    final_glob_pattern = glob_pattern,
+    max_depth = max_depth
+  })
+  
   -- Find files with error handling
+  debug_log("Starting file search with globpath")
   local success, files = pcall(function()
     return vim.fn.globpath(target_path, glob_pattern, false, true)
   end)
   
   if not success then
+    debug_log("File search failed:", tostring(files))
     return { 
       success = false, 
       error = "Failed to search directory: " .. tostring(files),
@@ -137,8 +179,12 @@ function M.execute(params)
     }
   end
   
+  debug_log("File search completed successfully")
+  debug_log("Raw files found:", #files, "files")
+  
   -- Check if files is nil or empty (could indicate permission issues)
   if not files or type(files) ~= "table" then
+    debug_log("Invalid response from file search:", type(files))
     return { 
       success = false, 
       error = "Invalid response from file search in directory: " .. target_path,
@@ -148,6 +194,7 @@ function M.execute(params)
   
   -- Filter out hidden files if not requested
   if not include_hidden then
+    debug_log("Filtering out hidden files")
     local filtered_files = {}
     for _, file in ipairs(files) do
       local filename = vim.fn.fnamemodify(file, ":t")
@@ -155,14 +202,19 @@ function M.execute(params)
         table.insert(filtered_files, file)
       end
     end
+    debug_log("Files after hidden filter:", #filtered_files, "files (removed", #files - #filtered_files, "hidden files)")
     files = filtered_files
+  else
+    debug_log("Including hidden files")
   end
   
   -- Sort files
   table.sort(files)
+  debug_log("Files sorted, final count:", #files)
   
   -- Check if no files were found and provide helpful message
   if #files == 0 then
+    debug_log("No files found matching criteria")
     local message = "No files found"
     local details = {
       workspace_root = workspace_root,
@@ -193,6 +245,7 @@ function M.execute(params)
   end
   
   -- Format results
+  debug_log("Preparing successful result")
   local result = {
     success = true,
     data = {
@@ -205,6 +258,13 @@ function M.execute(params)
       files = files
     }
   }
+  
+  debug_log("Tool execution completed successfully")
+  debug_log("Final result summary:", {
+    file_count = #files,
+    target_path = target_path,
+    pattern = pattern
+  })
   
   return result
 end
