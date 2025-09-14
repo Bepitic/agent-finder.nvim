@@ -1211,7 +1211,28 @@ function M._call_openai_api(messages, model, api_key)
           table.insert(parts, item.text)
         elseif item.type == "message" and type(item.content) == "table" then
           for _, sub in ipairs(item.content) do
-            if sub.type == "text" and type(sub.text) == "string" then
+            if (sub.type == "text" or sub.type == "output_text") and type(sub.text) == "string" then
+              table.insert(parts, sub.text)
+            end
+          end
+        end
+      end
+    end
+    if #parts > 0 then
+      content = table.concat(parts, "\n")
+    end
+  elseif type(result.output) == "table" then
+    -- Some models return `output` instead of `content`
+    local parts = {}
+    for _, item in ipairs(result.output) do
+      if type(item) == "table" then
+        if item.type == "output_text" and type(item.text) == "string" then
+          table.insert(parts, item.text)
+        elseif item.type == "text" and type(item.text) == "string" then
+          table.insert(parts, item.text)
+        elseif item.type == "message" and type(item.content) == "table" then
+          for _, sub in ipairs(item.content) do
+            if (sub.type == "text" or sub.type == "output_text") and type(sub.text) == "string" then
               table.insert(parts, sub.text)
             end
           end
@@ -1250,25 +1271,37 @@ function M._call_openai_api(messages, model, api_key)
   end
 
   -- Responses tool call shape: try to translate if no plain text was found
-  if (not content or content == "") and type(result.content) == "table" then
-    for _, item in ipairs(result.content) do
-      if type(item) == "table" and (item.type == "tool_call" or item.type == "tool_use") then
-        local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
-        local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
-        local args_tbl = {}
-        if type(args) == "string" and args ~= "" then
-          local ok, parsed = pcall(vim.fn.json_decode, args)
-          if ok then args_tbl = parsed else args_tbl = { _raw = args } end
-        elseif type(args) == "table" then
-          args_tbl = args
-        end
-        if name then
-          local tool_json = { tool_name = name, parameters = args_tbl }
-          content = "```json\n" .. vim.fn.json_encode(tool_json) .. "\n```"
-          break
+  local function try_extract_tool_from_items(items)
+    for _, item in ipairs(items) do
+      if type(item) == "table" then
+        if item.type == "tool_call" or item.type == "tool_use" or item.type == "function_call" then
+          local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
+          local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
+          local args_tbl = {}
+          if type(args) == "string" and args ~= "" then
+            local ok, parsed = pcall(vim.fn.json_decode, args)
+            if ok then args_tbl = parsed else args_tbl = { _raw = args } end
+          elseif type(args) == "table" then
+            args_tbl = args
+          end
+          if name then
+            local tool_json = { tool_name = name, parameters = args_tbl }
+            return "```json\n" .. vim.fn.json_encode(tool_json) .. "\n```"
+          end
+        elseif item.type == "message" and type(item.content) == "table" then
+          local inner = try_extract_tool_from_items(item.content)
+          if inner then return inner end
         end
       end
     end
+    return nil
+  end
+
+  if (not content or content == "") and type(result.content) == "table" then
+    content = try_extract_tool_from_items(result.content) or content
+  end
+  if (not content or content == "") and type(result.output) == "table" then
+    content = try_extract_tool_from_items(result.output) or content
   end
 
   if not content or content == "" then
