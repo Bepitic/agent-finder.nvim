@@ -763,9 +763,15 @@ function M._send_chat_message()
     return
   end
   
-  -- Add user message to chat
-  local user_line = string.format("**You:** %s", user_message)
-  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { user_line, "" })
+  -- Add user message to chat (split into lines for proper formatting)
+  local user_lines = {}
+  table.insert(user_lines, "**You:**")
+  for line in string.gmatch(user_message, "[^\r\n]+") do
+    table.insert(user_lines, line)
+  end
+  table.insert(user_lines, "") -- Add empty line after user message
+  
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, user_lines)
   
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
@@ -803,29 +809,27 @@ function M._send_chat_message()
     
     -- Format the response
     local response_lines = {}
-    if tool_used and tool_result then
-      if tool_result.success then
-        response_lines = {
-          string.format("**%s:** %s", agent.display_name, response.content),
-          "",
-          "🔧 **Tool Result:**",
-          vim.fn.json_encode(tool_result.data or tool_result),
-          ""
-        }
-      else
-        response_lines = {
-          string.format("**%s:** %s", agent.display_name, response.content),
-          "",
-          "❌ **Tool Error:** " .. tool_result.error,
-          ""
-        }
-      end
-    else
-      response_lines = {
-        string.format("**%s:** %s", agent.display_name, response.content),
-        ""
-      }
+    table.insert(response_lines, string.format("**%s:**", agent.display_name))
+    
+    -- Split AI response into lines
+    for line in string.gmatch(response.content, "[^\r\n]+") do
+      table.insert(response_lines, line)
     end
+    
+    if tool_used and tool_result then
+      table.insert(response_lines, "") -- Add empty line before tool result
+      if tool_result.success then
+        table.insert(response_lines, "🔧 **Tool Result:**")
+        local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+        for tool_line in string.gmatch(tool_result_json, "[^\r\n]+") do
+          table.insert(response_lines, tool_line)
+        end
+      else
+        table.insert(response_lines, "❌ **Tool Error:** " .. tool_result.error)
+      end
+    end
+    
+    table.insert(response_lines, "") -- Add empty line after response
     
     vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, response_lines)
     
@@ -837,8 +841,12 @@ function M._send_chat_message()
     vim.api.nvim_buf_set_lines(chat_bufnr, line_count - 2, line_count, false, {})
     
     -- Show error message
-    local error_line = string.format("**%s:** ❌ Error: %s", agent.display_name, response.error)
-    vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { error_line, "" })
+    local error_lines = {}
+    table.insert(error_lines, string.format("**%s:**", agent.display_name))
+    table.insert(error_lines, "❌ Error: " .. response.error)
+    table.insert(error_lines, "")
+    
+    vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, error_lines)
     
     vim.notify('agent-finder.nvim: ' .. response.error, vim.log.levels.ERROR)
   end
