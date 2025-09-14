@@ -38,6 +38,11 @@ function M.load_agents()
     return false
   end
   
+  -- Update config with values from YAML file
+  if data.debug ~= nil then
+    config.set('debug', data.debug)
+  end
+  
   -- Debug: Show what was parsed
   if config.get('debug') then
     vim.notify('agent-finder.nvim: Parsed YAML data: ' .. vim.fn.json_encode(data), vim.log.levels.DEBUG)
@@ -1392,6 +1397,11 @@ end
 
 -- Generate AI response using OpenAI with tools integration
 function M._generate_ai_response(agent, user_message, chat_history)
+  debug_log("=== _generate_ai_response called ===")
+  debug_log("Debug mode enabled:", config.get('debug'))
+  debug_log("Agent:", vim.inspect(agent))
+  debug_log("User message:", user_message)
+  
   local api_keys = vim.b.agent_finder_api_keys or {}
   local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
   

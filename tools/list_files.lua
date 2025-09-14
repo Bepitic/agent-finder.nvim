@@ -51,6 +51,7 @@ M.parameters = {
 
 -- Tool implementation
 function M.execute(params)
+  debug_log("=== LIST_FILES TOOL EXECUTED ===")
   debug_log("Starting list_files tool execution")
   debug_log("Input parameters:", vim.inspect(params))
   
