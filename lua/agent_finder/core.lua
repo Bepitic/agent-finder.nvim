@@ -749,31 +749,48 @@ function M._send_chat_message()
   end
   
   -- Get user message (everything after the last separator)
-  local user_message = ""
+  local user_message_lines = {}
   for i = last_separator + 1, #lines do
     if lines[i] ~= "" and not lines[i]:match("^**%w+:**") then
-      user_message = user_message .. lines[i] .. "\n"
+      table.insert(user_message_lines, lines[i])
     end
   end
   
-  user_message = vim.trim(user_message)
-  
-  if user_message == "" then
+  if #user_message_lines == 0 then
     vim.notify('agent-finder.nvim: Please enter a message', vim.log.levels.WARN)
     return
   end
   
-  -- Add user message to chat
-  local user_line = string.format("**You:** %s", user_message)
-  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { user_line, "" })
+  -- Join user message lines
+  local user_message = table.concat(user_message_lines, "\n")
+  
+  -- Add user message to chat (split into lines for proper formatting)
+  local user_chat_lines = {}
+  table.insert(user_chat_lines, "**You:**")
+  for _, line in ipairs(user_message_lines) do
+    table.insert(user_chat_lines, line)
+  end
+  table.insert(user_chat_lines, "") -- Add empty line after user message
+  
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, user_chat_lines)
   
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
   
   -- Simulate agent response (for now, just echo back)
   local response = M._generate_agent_response(agent, user_message)
-  local agent_line = string.format("**%s:** %s", agent.display_name, response)
-  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { agent_line, "" })
+  
+  -- Split response into lines and format properly
+  local response_lines = {}
+  table.insert(response_lines, string.format("**%s:**", agent.display_name))
+  
+  for line in string.gmatch(response, "[^\r\n]+") do
+    table.insert(response_lines, line)
+  end
+  
+  table.insert(response_lines, "") -- Add empty line after response
+  
+  vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, response_lines)
   
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response })
