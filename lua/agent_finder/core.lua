@@ -564,6 +564,13 @@ function M.start_chat()
     return false
   end
   
+  -- Check if API keys are loaded
+  local api_keys = vim.b.agent_finder_api_keys or {}
+  if not api_keys.openai and not vim.env.OPENAI_API_KEY then
+    vim.notify('agent-finder.nvim: OpenAI API key not found. Please ensure your agents.yaml contains the openai key or set OPENAI_API_KEY environment variable.', vim.log.levels.WARN)
+    return false
+  end
+  
   -- Use telescope to select agent for chat
   M._select_agent_for_chat(agents)
   return true
@@ -1120,8 +1127,14 @@ function M._generate_ai_response(agent, user_message, chat_history)
   local api_keys = vim.b.agent_finder_api_keys or {}
   local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
   
+  -- Debug information
+  if config.get('debug') then
+    vim.notify('agent-finder.nvim: API keys from config: ' .. vim.fn.json_encode(api_keys), vim.log.levels.DEBUG)
+    vim.notify('agent-finder.nvim: OpenAI key found: ' .. (openai_key and "yes" or "no"), vim.log.levels.DEBUG)
+  end
+  
   if not openai_key then
-    return { success = false, error = "OpenAI API key not configured" }
+    return { success = false, error = "OpenAI API key not configured. Please run :AFLoad to load your agents.yaml configuration, or set OPENAI_API_KEY environment variable." }
   end
   
   -- Load tools if not already loaded
