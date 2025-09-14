@@ -1,30 +1,50 @@
 -- agent-finder.nvim plugin entry point
 -- This file is automatically loaded by Neovim
 
-local M = {}
-
 -- Register commands and autocmds when the plugin loads
-M.setup = function()
+local function setup_commands()
   -- Register user commands
   vim.api.nvim_create_user_command('AFLoad', function()
-    require('agent_finder').load_agents()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.load_agents()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
   end, { desc = 'Load AI agents from YAML configuration' })
 
   vim.api.nvim_create_user_command('AFGoal', function()
-    require('agent_finder').set_goal()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.set_goal()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
   end, { desc = 'Set AI agent goal for current buffer' })
 
   vim.api.nvim_create_user_command('AFApply', function()
-    require('agent_finder').apply_goal()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.apply_goal()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
   end, { desc = 'Apply AI agent goal to current buffer' })
 
   vim.api.nvim_create_user_command('AFEnv', function()
-    require('agent_finder').export_env()
+    local ok, agent_finder = pcall(require, 'agent_finder')
+    if ok then
+      agent_finder.export_env()
+    else
+      vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
+    end
   end, { desc = 'Export API keys to vim.env' })
+end
 
-  -- Set up default keymaps if not disabled
-  local config = require('agent_finder.config')
-  if config.default_keymaps then
+-- Set up default keymaps
+local function setup_keymaps()
+  local ok, config = pcall(require, 'agent_finder.config')
+  if ok and config.get('default_keymaps') then
     local opts = { silent = true, noremap = true }
     
     vim.keymap.set('n', '<leader>afl', '<cmd>AFLoad<cr>', vim.tbl_extend('force', opts, { desc = 'Load agents' }))
@@ -33,7 +53,6 @@ M.setup = function()
   end
 end
 
--- Auto-setup when plugin loads
-M.setup()
-
-return M
+-- Initialize the plugin
+setup_commands()
+setup_keymaps()
