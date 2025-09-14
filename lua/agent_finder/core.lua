@@ -1443,7 +1443,8 @@ function M._generate_ai_response(agent, user_message, chat_history)
     -- If we got text content, check if it contains a tool call
     if resp.content and resp.content ~= "" then
       -- Check if the content contains a JSON tool call
-      local tool_match = resp.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
+      print("DEBUG: Checking content for tool call:", resp.content)
+      local tool_match = resp.content:match("```json%s*({[^`]+})%s*```")
       if tool_match then
         print("DEBUG: Found tool match:", tool_match)
         local success, tool_data = pcall(vim.fn.json_decode, tool_match)
