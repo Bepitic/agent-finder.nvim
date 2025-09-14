@@ -1108,19 +1108,55 @@ end
 
 -- OpenAI API integration
 function M._call_openai_api(messages, model, api_key)
-  model = model or "gpt-3.5-turbo"
+  model = model or "gpt-5-nano-2025-08-07"
   api_key = api_key or vim.env.OPENAI_API_KEY
   
   if not api_key then
     return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY environment variable or configure it in agents.yaml" }
   end
-  
+
+  -- Convert local tools into OpenAI tool schema if available
+  local openai_tools = nil
+  local available_tools = M.get_tools()
+  if available_tools and type(available_tools) == "table" and not vim.tbl_isempty(available_tools) then
+    local tools_schema = M.generate_tools_schema()
+    openai_tools = {}
+    for tool_name, spec in pairs(tools_schema or {}) do
+      table.insert(openai_tools, {
+        type = "function",
+        ["function"] = {
+          name = spec.tool_name or tool_name,
+          description = spec.description or "",
+          parameters = spec.parameters or { type = "object", properties = {}, required = {} },
+        }
+      })
+    end
+  end
+
+  -- Build a single input string for the Responses API from chat messages
+  local input_text = ""
+  if type(messages) == "table" then
+    for _, msg in ipairs(messages) do
+      local role = msg.role or "user"
+      local text = msg.content or ""
+      input_text = input_text .. string.format("[%s] %s\n\n", role, text)
+    end
+  elseif type(messages) == "string" then
+    input_text = messages
+  end
+  input_text = vim.trim(input_text)
+
   local request_body = {
     model = model,
-    messages = messages,
+    input = input_text,
     temperature = 0.7,
-    max_tokens = 1000
+    max_output_tokens = 1000,
   }
+
+  if openai_tools and #openai_tools > 0 then
+    request_body.tools = openai_tools
+    request_body.tool_choice = "auto"
+  end
   
   local json_body = vim.fn.json_encode(request_body)
   
@@ -1129,7 +1165,7 @@ function M._call_openai_api(messages, model, api_key)
     'curl',
     '-s',
     '-X', 'POST',
-    'https://api.openai.com/v1/chat/completions',
+    'https://api.openai.com/v1/responses',
     '-H', 'Content-Type: application/json',
     '-H', 'Authorization: Bearer ' .. api_key,
     '-d', json_body
@@ -1148,12 +1184,82 @@ function M._call_openai_api(messages, model, api_key)
     return { success = false, error = "OpenAI API error: " .. (result.error.message or "Unknown error") }
   end
   
-  if not result.choices or #result.choices == 0 then
-    return { success = false, error = "No response from OpenAI API" }
+  -- Try Responses API fields first
+  local content = nil
+  if type(result.output_text) == "string" and result.output_text ~= "" then
+    content = result.output_text
+  elseif type(result.content) == "table" then
+    -- Aggregate text from content items
+    local parts = {}
+    for _, item in ipairs(result.content) do
+      if type(item) == "table" then
+        if item.type == "output_text" and type(item.text) == "string" then
+          table.insert(parts, item.text)
+        elseif item.type == "text" and type(item.text) == "string" then
+          table.insert(parts, item.text)
+        elseif item.type == "message" and type(item.content) == "table" then
+          for _, sub in ipairs(item.content) do
+            if sub.type == "text" and type(sub.text) == "string" then
+              table.insert(parts, sub.text)
+            end
+          end
+        end
+      end
+    end
+    if #parts > 0 then
+      content = table.concat(parts, "\n")
+    end
   end
-  
-  local content = result.choices[1].message.content
-  if not content then
+
+  -- Back-compat: Chat Completions shape
+  if not content and result.choices and #result.choices > 0 then
+    local message = result.choices[1].message or {}
+    content = message.content
+    -- If model responded with tool calls, translate first one into a JSON block
+    if (not content or content == "") and message.tool_calls and #message.tool_calls > 0 then
+      local tool_call = message.tool_calls[1]
+      if tool_call and tool_call.type == "function" and tool_call["function"] then
+        local fn = tool_call["function"]
+        local args_tbl = nil
+        if type(fn.arguments) == "string" and fn.arguments ~= "" then
+          local ok, parsed_args = pcall(vim.fn.json_decode, fn.arguments)
+          if ok then args_tbl = parsed_args end
+        elseif type(fn.arguments) == "table" then
+          args_tbl = fn.arguments
+        end
+        args_tbl = args_tbl or {}
+        local tool_json = {
+          tool_name = fn.name,
+          parameters = args_tbl,
+        }
+        content = "```json\n" .. vim.fn.json_encode(tool_json) .. "\n```"
+      end
+    end
+  end
+
+  -- Responses tool call shape: try to translate if no plain text was found
+  if (not content or content == "") and type(result.content) == "table" then
+    for _, item in ipairs(result.content) do
+      if type(item) == "table" and (item.type == "tool_call" or item.type == "tool_use") then
+        local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
+        local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
+        local args_tbl = {}
+        if type(args) == "string" and args ~= "" then
+          local ok, parsed = pcall(vim.fn.json_decode, args)
+          if ok then args_tbl = parsed else args_tbl = { _raw = args } end
+        elseif type(args) == "table" then
+          args_tbl = args
+        end
+        if name then
+          local tool_json = { tool_name = name, parameters = args_tbl }
+          content = "```json\n" .. vim.fn.json_encode(tool_json) .. "\n```"
+          break
+        end
+      end
+    end
+  end
+
+  if not content or content == "" then
     return { success = false, error = "Empty response from OpenAI API" }
   end
   
