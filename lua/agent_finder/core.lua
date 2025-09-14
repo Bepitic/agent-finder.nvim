@@ -1206,7 +1206,6 @@ function M._call_openai_api(messages, model, api_key, opts)
   local request_body = {
     model = model,
     input = request_input,
-    temperature = 0.7,
     max_output_tokens = 1000,
   }
 
