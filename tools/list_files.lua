@@ -183,6 +183,12 @@ function M.execute(params)
     end
   end
   
+  -- If the recursive pattern doesn't work, try a simpler approach
+  if max_depth > 0 and pattern == "*" then
+    -- Try multiple patterns to ensure we get all files
+    glob_pattern = "**/*"
+  end
+  
   debug_log("Glob pattern built - original_pattern:", pattern)
   debug_log("Glob pattern built - final_glob_pattern:", glob_pattern)
   debug_log("Glob pattern built - max_depth:", max_depth)
@@ -192,12 +198,29 @@ function M.execute(params)
   debug_log("globpath parameters - target_path:", target_path)
   debug_log("globpath parameters - glob_pattern:", glob_pattern)
   
-  -- Test with a simple pattern first
-  local test_files = vim.fn.globpath(target_path, "*", false, true)
-  debug_log("Test with simple pattern '*':", #test_files, "files found")
+  -- Test with different patterns to see what works
+  local test_files_simple = vim.fn.globpath(target_path, "*", false, true)
+  debug_log("Test with simple pattern '*':", #test_files_simple, "files found")
   
+  local test_files_recursive = vim.fn.globpath(target_path, "**/*", false, true)
+  debug_log("Test with recursive pattern '**/*':", #test_files_recursive, "files found")
+  
+  local test_files_all = vim.fn.globpath(target_path, "**", false, true)
+  debug_log("Test with pattern '**':", #test_files_all, "files found")
+  
+  -- Use the pattern that works best
   local success, files = pcall(function()
-    return vim.fn.globpath(target_path, glob_pattern, false, true)
+    if max_depth > 0 then
+      -- Try recursive pattern first
+      local recursive_files = vim.fn.globpath(target_path, "**/*", false, true)
+      if #recursive_files > 0 then
+        return recursive_files
+      end
+      -- Fallback to simple pattern
+      return vim.fn.globpath(target_path, "*", false, true)
+    else
+      return vim.fn.globpath(target_path, pattern, false, true)
+    end
   end)
   
   if not success then
