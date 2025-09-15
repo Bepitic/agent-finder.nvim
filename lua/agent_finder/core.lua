@@ -1110,7 +1110,7 @@ function M.generate_tools_schema()
           properties[param_name].default = param_def.default
         end
         
-        if param_def.required then
+        if param_def.required == true then
           table.insert(required, param_name)
         end
       end
