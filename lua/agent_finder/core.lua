@@ -1555,12 +1555,26 @@ function M._generate_ai_response(agent, user_message, chat_history)
             })
             executed_any = true
           end
+        elseif item_type == "reasoning" then
+          debug_log("Found reasoning item, skipping execution")
+          -- Reasoning items don't need to be executed, just continue
         end
       end
     end
     
+    -- Check if we have any content items (text, output_text, etc.)
+    local has_content = false
+    for _, item in ipairs(output_items) do
+      if type(item) == "table" and (item.type == "text" or item.type == "output_text" or item.type == "message") then
+        has_content = true
+        debug_log("Found content item:", item.type)
+        break
+      end
+    end
+    
     -- If we executed a tool, loop to send the augmented input_list; otherwise break to avoid infinite loop
-    if not executed_any then
+    if not executed_any and not has_content then
+      debug_log("No tools executed and no content found, breaking loop")
       break
     end
   end
@@ -1613,6 +1627,16 @@ function M._generate_ai_response(agent, user_message, chat_history)
       if choice.message and choice.message.content then
         fallback_content = choice.message.content
         debug_log("Found fallback content in choices[1].message.content:", fallback_content)
+      end
+    end
+    
+    -- Try to extract from output items that might contain text
+    if resp.raw and resp.raw.output then
+      for _, item in ipairs(resp.raw.output) do
+        if type(item) == "table" and item.type == "reasoning" and item.content then
+          fallback_content = fallback_content .. item.content
+          debug_log("Found reasoning content:", item.content)
+        end
       end
     end
     
