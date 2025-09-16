@@ -29,6 +29,7 @@ Load AI agents from YAML configuration, set goals, and apply them to your curren
 ```lua
 {
   "Bepitic/agent-finder.nvim",
+  dependencies = { "nvim-lua/plenary.nvim" },
   config = function()
     require('agent_finder').setup({
       -- Optional configuration
@@ -47,6 +48,7 @@ Load AI agents from YAML configuration, set goals, and apply them to your curren
 ### Using packer.nvim
 
 ```lua
+use 'nvim-lua/plenary.nvim'
 use {
   'Bepitic/agent-finder.nvim',
   config = function()
@@ -58,6 +60,7 @@ use {
 ### Using vim-plug
 
 ```vim
+Plug 'nvim-lua/plenary.nvim'
 Plug 'Bepitic/agent-finder.nvim'
 ```
 
@@ -483,6 +486,28 @@ agent_finder.clear_state()
 ```
 
 ## Dependencies
+
+### Required: plenary.nvim
+
+This plugin requires [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) for HTTP requests and utility functions:
+
+```lua
+-- Using lazy.nvim
+{
+  'nvim-lua/plenary.nvim',
+  lazy = true
+}
+```
+
+```lua
+-- Using packer.nvim
+use 'nvim-lua/plenary.nvim'
+```
+
+```vim
+" Using vim-plug
+Plug 'nvim-lua/plenary.nvim'
+```
 
 ### Optional: Telescope for enhanced UI
 

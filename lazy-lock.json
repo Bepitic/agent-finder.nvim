@@ -1,0 +1,7 @@
+{
+  "Bepitic/agent-finder.nvim": {
+    "dependencies": [
+      "nvim-lua/plenary.nvim"
+    ]
+  }
+}

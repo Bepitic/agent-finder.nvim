@@ -957,14 +957,14 @@ function M._send_chat_message()
       end
     else
       -- Fallback: Try to parse JSON tool usage from response content
-      local tool_match = response.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
-      if tool_match then
-        local success, tool_data = pcall(vim.fn.json_decode, tool_match)
-        if success and tool_data.tool_name and tool_data.parameters then
-          -- Execute the tool
-          tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
-          tool_used = true
-          parsed_tool_name = tool_data.tool_name
+    local tool_match = response.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
+    if tool_match then
+      local success, tool_data = pcall(vim.fn.json_decode, tool_match)
+      if success and tool_data.tool_name and tool_data.parameters then
+        -- Execute the tool
+        tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
+        tool_used = true
+        parsed_tool_name = tool_data.tool_name
         end
       end
     end
@@ -1005,57 +1005,57 @@ function M._send_chat_message()
         return -- Exit the function - agent has terminated
       else
         -- For other tools, show the result
-        table.insert(response_lines, "") -- Add empty line before tool result
-        if tool_result.success then
-          table.insert(response_lines, "🔧 **Tool Result:**")
-          local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
-          for tool_line in string.gmatch(tool_result_json, "[^\r\n]+") do
-            table.insert(response_lines, tool_line)
-          end
-          -- After showing tool result, make a follow-up model call including memory and tool output
-          local function build_history_text()
-            local parts = {}
-            if vim.b.agent_finder_chat_messages then
-              for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
-                local role = msg.role or "user"
-                local text = msg.content or ""
-                table.insert(parts, string.format("[%s] %s", role, text))
-              end
-            end
-            return table.concat(parts, "\n\n")
-          end
-          local followup_input = {}
+      table.insert(response_lines, "") -- Add empty line before tool result
+      if tool_result.success then
+        table.insert(response_lines, "🔧 **Tool Result:**")
+        local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+        for tool_line in string.gmatch(tool_result_json, "[^\r\n]+") do
+          table.insert(response_lines, tool_line)
+        end
+        -- After showing tool result, make a follow-up model call including memory and tool output
+        local function build_history_text()
+          local parts = {}
           if vim.b.agent_finder_chat_messages then
             for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
-              table.insert(followup_input, {
-                type = "message",
-                role = msg.role or "user",
-                content = { { type = "input_text", text = msg.content or "" } },
-              })
+              local role = msg.role or "user"
+              local text = msg.content or ""
+              table.insert(parts, string.format("[%s] %s", role, text))
             end
           end
-          table.insert(followup_input, {
-            type = "message",
-            role = "assistant",
-            content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
-          })
-          local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
-          if followup and followup.success and followup.content and followup.content ~= "" then
-            table.insert(response_lines, "")
-            local first_follow = true
-            for line in string.gmatch(followup.content, "[^\r\n]+") do
-              if first_follow then
-                table.insert(response_lines, "@> " .. line)
-                first_follow = false
-              else
-                table.insert(response_lines, line)
-              end
-            end
-            -- Update history with assistant's follow-up content
-            table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = followup.content })
+          return table.concat(parts, "\n\n")
+        end
+        local followup_input = {}
+        if vim.b.agent_finder_chat_messages then
+          for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
+            table.insert(followup_input, {
+              type = "message",
+              role = msg.role or "user",
+              content = { { type = "input_text", text = msg.content or "" } },
+            })
           end
-        else
-          table.insert(response_lines, "❌ **Tool Error:** " .. tool_result.error)
+        end
+        table.insert(followup_input, {
+          type = "message",
+          role = "assistant",
+          content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
+        })
+        local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
+        if followup and followup.success and followup.content and followup.content ~= "" then
+          table.insert(response_lines, "")
+          local first_follow = true
+          for line in string.gmatch(followup.content, "[^\r\n]+") do
+            if first_follow then
+              table.insert(response_lines, "@> " .. line)
+              first_follow = false
+            else
+              table.insert(response_lines, line)
+            end
+          end
+          -- Update history with assistant's follow-up content
+          table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = followup.content })
+        end
+      else
+        table.insert(response_lines, "❌ **Tool Error:** " .. tool_result.error)
         end
       end
     end
@@ -1294,7 +1294,12 @@ end
 -- OpenAI API integration
 local json = vim.fn.json_encode
 local decode = vim.json and vim.json.decode or vim.fn.json_decode
-local curl = require("plenary.curl")  -- or swap with your HTTP layer
+
+-- Try to use plenary.curl, fallback to system curl
+local curl_available, curl = pcall(require, "plenary.curl")
+if not curl_available then
+  curl = nil  -- Will use system curl fallback
+end
 
 -- Helper: convert local tools -> OpenAI schema (supports both APIs)
 local function build_tools_for(api_kind, tools_schema)
@@ -1302,9 +1307,9 @@ local function build_tools_for(api_kind, tools_schema)
   local out = {}
   for tool_name, spec in pairs(tools_schema) do
     local fn = {
-      name = spec.tool_name or tool_name,
-      description = spec.description or "",
-      parameters = spec.parameters or { type = "object", properties = {}, required = {} },
+        name = spec.tool_name or tool_name,
+        description = spec.description or "",
+        parameters = spec.parameters or { type = "object", properties = {}, required = {} },
     }
     if api_kind == "responses" then
       table.insert(out, { type = "function", ["function"] = fn })
@@ -1412,20 +1417,47 @@ function M._call_openai_api(messages, model, api_key, opts)
     }
   end
 
-  -- Send
-  local res = curl.post(url, {
-    headers = {
-      ["Authorization"] = "Bearer " .. api_key,
-      ["Content-Type"] = "application/json",
-    },
-    body = json(payload),
+  -- Send HTTP request
+  local res, body
+  if curl then
+    -- Use plenary.curl if available
+    res = curl.post(url, {
+      headers = {
+        ["Authorization"] = "Bearer " .. api_key,
+        ["Content-Type"] = "application/json",
+      },
+      body = json(payload),
+    })
+    
+    if res.status < 200 or res.status >= 300 then
+      return { success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") }
+    end
+    
+    body = decode(res.body)
+  else
+    -- Fallback to system curl
+    local json_body = json(payload)
+  local response = vim.fn.system({
+    'curl',
+    '-s',
+    '-X', 'POST',
+      url,
+    '-H', 'Content-Type: application/json',
+    '-H', 'Authorization: Bearer ' .. api_key,
+    '-d', json_body
   })
-
-  if res.status < 200 or res.status >= 300 then
-    return { success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") }
+  
+  if vim.v.shell_error ~= 0 then
+    return { success = false, error = "Failed to make API request to OpenAI" }
   end
-
-  local body = decode(res.body)
+  
+    local success, result = pcall(decode, response)
+  if not success then
+    return { success = false, error = "Failed to parse OpenAI API response" }
+  end
+  
+    body = result
+  end
   local out = extract_content(api_kind, body)
 
   if out.kind == "text" then
@@ -1517,7 +1549,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
           resp = fallback_resp
         else
           debug_log("Fallback API call also failed:", fallback_resp.error)
-          return resp
+      return resp
         end
       else
         return resp
