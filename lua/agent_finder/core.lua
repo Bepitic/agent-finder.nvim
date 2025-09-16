@@ -1580,6 +1580,19 @@ function M._generate_ai_response(agent, user_message, chat_history)
           local tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
           debug_log("Tool result:", vim.inspect(tool_result))
           
+          -- Check if this is a Terminate tool - if so, stop processing
+          if tool_data.tool_name == "Terminate" and tool_result.success then
+            debug_log("Terminate tool executed, stopping processing loop")
+            -- Return the current response content if any, or a simple termination message
+            local final_content = ""
+            if resp.content and resp.content ~= "" then
+              final_content = resp.content
+            else
+              final_content = "Agent processing terminated. Waiting for user input."
+            end
+            return { success = true, content = final_content }
+          end
+          
           -- Add the tool result to the input list for the next iteration
           local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
           table.insert(input_list, {
