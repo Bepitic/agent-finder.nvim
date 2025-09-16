@@ -8,7 +8,7 @@ M.debug = true
 
 -- API Keys Configuration
 M.api_keys = {
-  openai = "your-openai-api-key-here",
+  openai = os.getenv("OPENAI_API_KEY") or "your-openai-api-key-here",
   anthropic = "your-anthropic-api-key-here",
   -- Add more services as needed
 }

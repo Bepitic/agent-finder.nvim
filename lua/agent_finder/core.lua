@@ -92,6 +92,12 @@ function M.load_agents()
     if config.get('debug') then
       vim.notify('agent-finder.nvim: API keys loaded: ' .. vim.fn.json_encode(data.api_keys), vim.log.levels.DEBUG)
     end
+    -- Check if OpenAI key is properly configured
+    if data.api_keys.openai and data.api_keys.openai ~= "your-openai-api-key-here" then
+      vim.notify('agent-finder.nvim: OpenAI API key configured successfully', vim.log.levels.INFO)
+    else
+      vim.notify('agent-finder.nvim: Warning: OpenAI API key not properly configured in agents.lua', vim.log.levels.WARN)
+    end
   else
     if config.get('debug') then
       vim.notify('agent-finder.nvim: No API keys found in data: ' .. vim.fn.json_encode(data), vim.log.levels.DEBUG)
