@@ -1320,9 +1320,6 @@ function M._call_openai_api(messages, model, api_key, opts)
     model = model,
     input = request_input,
     max_output_tokens = 1000,
-    -- Add parameters to handle reasoning better
-    temperature = 0.7,
-    top_p = 1,
   }
 
   if opts.instructions and type(opts.instructions) == "string" then
