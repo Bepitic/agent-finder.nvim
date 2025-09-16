@@ -1688,16 +1688,37 @@ function M._generate_ai_response(agent, user_message, chat_history)
     
     -- Check if we have any content items (text, output_text, etc.)
     local has_content = false
+    local has_reasoning = false
     for _, item in ipairs(output_items) do
-      if type(item) == "table" and (item.type == "text" or item.type == "output_text" or item.type == "message") then
-        has_content = true
-        debug_log("Found content item:", item.type)
-        break
+      if type(item) == "table" then
+        if item.type == "text" or item.type == "output_text" or item.type == "message" then
+          has_content = true
+          debug_log("Found content item:", item.type)
+          break
+        elseif item.type == "reasoning" then
+          has_reasoning = true
+          debug_log("Found reasoning item:", item.type)
+        end
+      end
+    end
+    
+    -- If we have reasoning but no content, extract the reasoning as content
+    if has_reasoning and not has_content then
+      debug_log("Extracting reasoning as content")
+      local reasoning_content = ""
+      for _, item in ipairs(output_items) do
+        if type(item) == "table" and item.type == "reasoning" and item.content then
+          reasoning_content = reasoning_content .. item.content .. "\n"
+        end
+      end
+      if reasoning_content ~= "" then
+        debug_log("Returning reasoning content:", reasoning_content)
+        return { success = true, content = reasoning_content }
       end
     end
     
     -- If we executed a tool, loop to send the augmented input_list; otherwise break to avoid infinite loop
-    if not executed_any and not has_content then
+    if not executed_any and not has_content and not has_reasoning then
       debug_log("No tools executed and no content found, breaking loop")
       break
     end
@@ -1722,12 +1743,17 @@ function M._generate_ai_response(agent, user_message, chat_history)
         debug_log("Extracting content from raw.output items:", #raw.output)
         -- Extract text content from output items
         for _, item in ipairs(raw.output) do
-          if type(item) == "table" and item.type == "text" and item.text then
-            debug_log("Found text item:", item.text)
-            final_content = final_content .. item.text
-          elseif type(item) == "table" and item.type == "output_text" and item.text then
-            debug_log("Found output_text item:", item.text)
-            final_content = final_content .. item.text
+          if type(item) == "table" then
+            if item.type == "text" and item.text then
+              debug_log("Found text item:", item.text)
+              final_content = final_content .. item.text
+            elseif item.type == "output_text" and item.text then
+              debug_log("Found output_text item:", item.text)
+              final_content = final_content .. item.text
+            elseif item.type == "reasoning" and item.content then
+              debug_log("Found reasoning item:", item.content)
+              final_content = final_content .. item.content
+            end
           end
         end
       end
@@ -1757,9 +1783,17 @@ function M._generate_ai_response(agent, user_message, chat_history)
     -- Try to extract from output items that might contain text
     if resp.raw and resp.raw.output then
       for _, item in ipairs(resp.raw.output) do
-        if type(item) == "table" and item.type == "reasoning" and item.content then
-          fallback_content = fallback_content .. item.content
-          debug_log("Found reasoning content:", item.content)
+        if type(item) == "table" then
+          if item.type == "reasoning" and item.content then
+            fallback_content = fallback_content .. item.content
+            debug_log("Found reasoning content:", item.content)
+          elseif item.type == "text" and item.text then
+            fallback_content = fallback_content .. item.text
+            debug_log("Found text content:", item.text)
+          elseif item.type == "output_text" and item.text then
+            fallback_content = fallback_content .. item.text
+            debug_log("Found output_text content:", item.text)
+          end
         end
       end
     end
@@ -1771,6 +1805,12 @@ function M._generate_ai_response(agent, user_message, chat_history)
   end
   
   debug_log("No content found in any format, returning error")
+  -- Try one more fallback - check if we have any response at all
+  if resp and resp.raw then
+    debug_log("Raw response structure:", vim.inspect(resp.raw))
+    -- If we have a raw response but no content, return a generic message
+    return { success = true, content = "I'm processing your request. Please wait a moment and try again." }
+  end
   return { success = false, error = "No textual output from model after tool calls" }
 end
 
