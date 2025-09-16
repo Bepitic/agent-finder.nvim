@@ -1073,7 +1073,11 @@ function M._send_chat_message()
     
     -- Show error message
     local error_lines = {}
-    table.insert(error_lines, "@> ❌ Error: " .. response.error)
+    local error_msg = response.error or "Unknown error"
+    -- Split error message by newlines and add each line
+    for line in string.gmatch(error_msg, "[^\r\n]+") do
+      table.insert(error_lines, "@> ❌ Error: " .. line)
+    end
     table.insert(error_lines, "")
     
     vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, error_lines)
