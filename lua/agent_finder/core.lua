@@ -1307,7 +1307,7 @@ local function build_tools_for(api_kind, tools_schema)
   local out = {}
   for tool_name, spec in pairs(tools_schema) do
     local fn = {
-        name = spec.tool_name or tool_name,
+        name = spec.name or spec.tool_name or tool_name,
         description = spec.description or "",
         parameters = spec.parameters or { type = "object", properties = {}, required = {} },
     }
