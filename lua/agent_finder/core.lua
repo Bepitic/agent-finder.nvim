@@ -935,14 +935,14 @@ function M._send_chat_message()
       local tool_name = nil
       local tool_args = {}
       
-      if tool_call.function then
-        tool_name = tool_call.function.name
-        if tool_call.function.arguments then
-          if type(tool_call.function.arguments) == "string" then
-            local success, parsed = pcall(vim.fn.json_decode, tool_call.function.arguments)
+      if tool_call["function"] then
+        tool_name = tool_call["function"].name
+        if tool_call["function"].arguments then
+          if type(tool_call["function"].arguments) == "string" then
+            local success, parsed = pcall(vim.fn.json_decode, tool_call["function"].arguments)
             if success then tool_args = parsed end
-          elseif type(tool_call.function.arguments) == "table" then
-            tool_args = tool_call.function.arguments
+          elseif type(tool_call["function"].arguments) == "table" then
+            tool_args = tool_call["function"].arguments
           end
         end
       elseif tool_call.name then
@@ -1564,16 +1564,16 @@ function M._generate_ai_response(agent, user_message, chat_history)
       local tool_args = {}
       
       -- Extract tool name and arguments based on API format
-      if tool_call.function then
-        tool_name = tool_call.function.name
-        if tool_call.function.arguments then
-          if type(tool_call.function.arguments) == "string" then
-            local success, parsed = pcall(vim.fn.json_decode, tool_call.function.arguments)
+      if tool_call["function"] then
+        tool_name = tool_call["function"].name
+        if tool_call["function"].arguments then
+          if type(tool_call["function"].arguments) == "string" then
+            local success, parsed = pcall(vim.fn.json_decode, tool_call["function"].arguments)
             if success then
               tool_args = parsed
             end
-          elseif type(tool_call.function.arguments) == "table" then
-            tool_args = tool_call.function.arguments
+          elseif type(tool_call["function"].arguments) == "table" then
+            tool_args = tool_call["function"].arguments
           end
         end
       elseif tool_call.name then
