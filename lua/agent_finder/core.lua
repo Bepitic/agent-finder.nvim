@@ -955,57 +955,80 @@ function M._send_chat_message()
     end
     
     if tool_used and tool_result then
-      table.insert(response_lines, "") -- Add empty line before tool result
-      if tool_result.success then
-        table.insert(response_lines, "🔧 **Tool Result:**")
-        local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
-        for tool_line in string.gmatch(tool_result_json, "[^\r\n]+") do
-          table.insert(response_lines, tool_line)
-        end
-        -- After showing tool result, make a follow-up model call including memory and tool output
-        local function build_history_text()
-          local parts = {}
+      -- Handle TalkToUser tool specially - it already displays its message
+      if parsed_tool_name == "TalkToUser" and tool_result.success then
+        -- TalkToUser tool handles its own display, so we don't need to show tool result
+        -- Just add a small indicator that a tool was used
+        table.insert(response_lines, "")
+        table.insert(response_lines, "💬 *[Used TalkToUser tool]*")
+      elseif parsed_tool_name == "Terminate" and tool_result.success then
+        -- Terminate tool handles its own display and stops processing
+        -- Just add a small indicator that the tool was used
+        table.insert(response_lines, "")
+        table.insert(response_lines, "⏹️ *[Agent terminated - waiting for user input]*")
+        -- Don't continue processing - return immediately
+        table.insert(response_lines, "") -- Add empty line after response
+        vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, response_lines)
+        -- Add to messages history
+        table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response.content })
+        -- Move cursor to end
+        local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
+        vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
+        return -- Exit the function - agent has terminated
+      else
+        -- For other tools, show the result
+        table.insert(response_lines, "") -- Add empty line before tool result
+        if tool_result.success then
+          table.insert(response_lines, "🔧 **Tool Result:**")
+          local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+          for tool_line in string.gmatch(tool_result_json, "[^\r\n]+") do
+            table.insert(response_lines, tool_line)
+          end
+          -- After showing tool result, make a follow-up model call including memory and tool output
+          local function build_history_text()
+            local parts = {}
+            if vim.b.agent_finder_chat_messages then
+              for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
+                local role = msg.role or "user"
+                local text = msg.content or ""
+                table.insert(parts, string.format("[%s] %s", role, text))
+              end
+            end
+            return table.concat(parts, "\n\n")
+          end
+          local followup_input = {}
           if vim.b.agent_finder_chat_messages then
             for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
-              local role = msg.role or "user"
-              local text = msg.content or ""
-              table.insert(parts, string.format("[%s] %s", role, text))
+              table.insert(followup_input, {
+                type = "message",
+                role = msg.role or "user",
+                content = { { type = "input_text", text = msg.content or "" } },
+              })
             end
           end
-          return table.concat(parts, "\n\n")
-        end
-        local followup_input = {}
-        if vim.b.agent_finder_chat_messages then
-          for _, msg in ipairs(vim.b.agent_finder_chat_messages) do
-            table.insert(followup_input, {
-              type = "message",
-              role = msg.role or "user",
-              content = { { type = "input_text", text = msg.content or "" } },
-            })
-          end
-        end
-        table.insert(followup_input, {
-          type = "message",
-          role = "assistant",
-          content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
-        })
-        local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
-        if followup and followup.success and followup.content and followup.content ~= "" then
-          table.insert(response_lines, "")
-          local first_follow = true
-          for line in string.gmatch(followup.content, "[^\r\n]+") do
-            if first_follow then
-              table.insert(response_lines, "@> " .. line)
-              first_follow = false
-            else
-              table.insert(response_lines, line)
+          table.insert(followup_input, {
+            type = "message",
+            role = "assistant",
+            content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", parsed_tool_name or "tool", tool_result_json) } },
+          })
+          local followup = M._call_openai_api(followup_input, nil, nil, { prebuilt_input = followup_input, instructions = (vim.b.agent_finder_chat_agent and vim.b.agent_finder_chat_agent.prompt) or "" })
+          if followup and followup.success and followup.content and followup.content ~= "" then
+            table.insert(response_lines, "")
+            local first_follow = true
+            for line in string.gmatch(followup.content, "[^\r\n]+") do
+              if first_follow then
+                table.insert(response_lines, "@> " .. line)
+                first_follow = false
+              else
+                table.insert(response_lines, line)
+              end
             end
+            -- Update history with assistant's follow-up content
+            table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = followup.content })
           end
-          -- Update history with assistant's follow-up content
-          table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = followup.content })
+        else
+          table.insert(response_lines, "❌ **Tool Error:** " .. tool_result.error)
         end
-      else
-        table.insert(response_lines, "❌ **Tool Error:** " .. tool_result.error)
       end
     end
     
@@ -1615,6 +1638,20 @@ function M._generate_ai_response(agent, user_message, chat_history)
             debug_log("Executing tool:", name, "with args:", vim.inspect(args_tbl))
             local tool_result = M.execute_tool(name, args_tbl)
             debug_log("Tool execution result:", vim.inspect(tool_result))
+            
+            -- Check if this is a Terminate tool - if so, stop processing
+            if name == "Terminate" and tool_result.success then
+              debug_log("Terminate tool executed, stopping processing loop")
+              -- Return the current response content if any, or a simple termination message
+              local final_content = ""
+              if resp.content and resp.content ~= "" then
+                final_content = resp.content
+              else
+                final_content = "Agent processing terminated. Waiting for user input."
+              end
+              return { success = true, content = final_content }
+            end
+            
             local call_id = item.call_id or item.id or (name .. "_call")
             local output_payload = tool_result
             -- Ensure output is a JSON string
