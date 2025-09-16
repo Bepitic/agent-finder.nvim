@@ -783,6 +783,15 @@ function M._open_chat_window(agent)
   -- Move cursor to the end
   vim.api.nvim_win_set_cursor(0, { #chat_content, 0 })
   
+  -- Auto-load agents and API keys in the chat buffer context
+  vim.notify('agent-finder.nvim: Loading agents and API keys for chat...', vim.log.levels.INFO)
+  local load_success = M.load_agents()
+  if load_success then
+    vim.notify('agent-finder.nvim: Agents and API keys loaded successfully for chat', vim.log.levels.INFO)
+  else
+    vim.notify('agent-finder.nvim: Warning: Failed to load agents/API keys for chat', vim.log.levels.WARN)
+  end
+  
   vim.notify(
     string.format('agent-finder.nvim: Started chat with %s. Type your message and press Enter.', agent.display_name),
     vim.log.levels.INFO
