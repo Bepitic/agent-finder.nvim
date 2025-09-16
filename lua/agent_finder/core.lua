@@ -86,9 +86,10 @@ function M.load_agents()
   -- Store agents in buffer variable
   vim.b.agent_finder_agents = agents
   
-  -- Store API keys if present
+  -- Store API keys globally so they're available across all buffers
   if data.api_keys then
-    vim.b.agent_finder_api_keys = data.api_keys
+    vim.g.agent_finder_api_keys = data.api_keys
+    vim.b.agent_finder_api_keys = data.api_keys  -- Also store in buffer for backward compatibility
     if config.get('debug') then
       vim.notify('agent-finder.nvim: API keys loaded: ' .. vim.fn.json_encode(data.api_keys), vim.log.levels.DEBUG)
     end
@@ -170,10 +171,10 @@ end
 
 -- Export API keys to vim.env
 function M.export_env()
-  local api_keys = vim.b.agent_finder_api_keys
+  local api_keys = vim.g.agent_finder_api_keys or vim.b.agent_finder_api_keys
   local config = require('agent_finder.config')
   
-  -- Use buffer API keys if available, otherwise use config
+  -- Use global/buffer API keys if available, otherwise use config
   local keys_to_export = api_keys or config.get('api_keys')
   
   local exported_count = 0
@@ -658,7 +659,7 @@ function M.start_chat()
   end
   
   -- Check if API keys are loaded
-  local api_keys = vim.b.agent_finder_api_keys or {}
+  local api_keys = vim.g.agent_finder_api_keys or vim.b.agent_finder_api_keys or {}
   if not api_keys.openai and not vim.env.OPENAI_API_KEY then
     vim.notify('agent-finder.nvim: OpenAI API key not found. Please ensure your agents.lua contains the openai key or set OPENAI_API_KEY environment variable.', vim.log.levels.WARN)
     return false
@@ -1466,7 +1467,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
   debug_log("Agent:", vim.inspect(agent))
   debug_log("User message:", user_message)
   
-  local api_keys = vim.b.agent_finder_api_keys or {}
+  local api_keys = vim.g.agent_finder_api_keys or vim.b.agent_finder_api_keys or {}
   local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
   
   if config.get('debug') then
