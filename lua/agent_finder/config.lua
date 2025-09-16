@@ -4,14 +4,14 @@ local M = {}
 
 -- Default configuration
 local defaults = {
-  -- Path to agents YAML file
-  agents_file = vim.fn.expand('~/.config/nvim/agents.yaml'),
+  -- Path to agents Lua file
+  agents_file = vim.fn.expand('~/.config/nvim/agents.lua'),
   
   -- Default keymaps
   default_keymaps = true,
   
-  -- YAML parsing preferences
-  yaml_parser = 'yq', -- 'yq' or 'lua'
+  -- Configuration file type (legacy, kept for compatibility)
+  config_type = 'lua', -- 'lua' (YAML support removed)
   
   -- API key configuration
   api_keys = {
@@ -70,10 +70,10 @@ function M._validate_config()
     )
   end
   
-  -- Validate YAML parser
-  if config.yaml_parser ~= 'yq' and config.yaml_parser ~= 'lua' then
+  -- Validate config type
+  if config.config_type ~= 'lua' then
     vim.notify(
-      'agent-finder.nvim: Invalid yaml_parser. Must be "yq" or "lua"',
+      'agent-finder.nvim: Invalid config_type. Only "lua" is supported',
       vim.log.levels.ERROR
     )
   end

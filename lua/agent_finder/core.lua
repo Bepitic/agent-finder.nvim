@@ -14,10 +14,9 @@ local function debug_log(message, ...)
   end
 end
 
--- Load agents from YAML configuration
+-- Load agents from Lua configuration
 function M.load_agents()
   local config = require('agent_finder.config')
-  local yaml = require('agent_finder.yaml')
   
   local agents_file = config.get('agents_file')
   
@@ -29,23 +28,38 @@ function M.load_agents()
     return false
   end
   
-  local data, err = yaml.parse_file(agents_file)
-  if not data then
+  -- Load Lua configuration file
+  local success, data = pcall(function()
+    -- Temporarily add the directory to package.path
+    local dir = vim.fn.fnamemodify(agents_file, ':h')
+    local original_path = package.path
+    package.path = dir .. '/?.lua;' .. package.path
+    
+    -- Load the configuration
+    local config_module = dofile(agents_file)
+    
+    -- Restore original package.path
+    package.path = original_path
+    
+    return config_module
+  end)
+  
+  if not success then
     vim.notify(
-      string.format('agent-finder.nvim: Failed to parse YAML: %s', err or 'unknown error'),
+      string.format('agent-finder.nvim: Failed to load Lua config: %s', data or 'unknown error'),
       vim.log.levels.ERROR
     )
     return false
   end
   
-  -- Update config with values from YAML file
+  -- Update config with values from Lua file
   if data.debug ~= nil then
     config.set('debug', data.debug)
   end
   
-  -- Debug: Show what was parsed
+  -- Debug: Show what was loaded
   if config.get('debug') then
-    vim.notify('agent-finder.nvim: Parsed YAML data: ' .. vim.fn.json_encode(data), vim.log.levels.DEBUG)
+    vim.notify('agent-finder.nvim: Loaded Lua config: ' .. vim.fn.json_encode(data), vim.log.levels.DEBUG)
   end
   
   -- Load agents from individual files if agents_directory is specified
@@ -60,7 +74,7 @@ function M.load_agents()
   end
   
   -- Validate agents
-  local valid, validation_err = yaml.validate_agents(agents)
+  local valid, validation_err = M._validate_agents(agents)
   if not valid then
     vim.notify(
       string.format('agent-finder.nvim: Invalid agents structure: %s', validation_err),
@@ -241,9 +255,37 @@ function M.get_goal()
   return vim.b.agent_finder_goal
 end
 
+-- Validate agents structure
+function M._validate_agents(agents)
+  if type(agents) ~= 'table' then
+    return false, 'Agents must be a table'
+  end
+  
+  -- Validate each agent
+  for name, agent in pairs(agents) do
+    if type(agent) ~= 'table' then
+      return false, string.format('Agent "%s" must be a table', name)
+    end
+    
+    if not agent.name then
+      return false, string.format('Agent "%s" missing required "name" field', name)
+    end
+    
+    if not agent.prompt then
+      return false, string.format('Agent "%s" missing required "prompt" field', name)
+    end
+    
+    -- Validate prompt is a string (not a table)
+    if type(agent.prompt) ~= 'string' then
+      return false, string.format('Agent "%s" prompt must be a string, got %s', name, type(agent.prompt))
+    end
+  end
+  
+  return true, nil
+end
+
 -- Load agents from individual files in a directory
 function M._load_agents_from_directory(main_config_file, agents_dir)
-  local yaml = require('agent_finder.yaml')
   local config = require('agent_finder.config')
   local agents = {}
   
@@ -288,12 +330,28 @@ function M._load_agents_from_directory(main_config_file, agents_dir)
     end
   end
   
-  -- Find all .yaml files in the agents directory
-  local agent_files = vim.fn.globpath(agents_path, '*.yaml', false, true)
+  -- Find all .lua files in the agents directory
+  local agent_files = vim.fn.globpath(agents_path, '*.lua', false, true)
   
   for _, file in ipairs(agent_files) do
-    local agent_data, err = yaml.parse_file(file)
-    if agent_data then
+    local success, agent_data = pcall(function()
+      -- Load the agent module
+      local agent_name = vim.fn.fnamemodify(file, ':t:r')
+      local module_path = agent_name
+      
+      -- Add agents directory to package path temporarily
+      local original_path = package.path
+      package.path = agents_path .. '/?.lua;' .. package.path
+      
+      local agent_module = dofile(file)
+      
+      -- Restore original package path
+      package.path = original_path
+      
+      return agent_module
+    end)
+    
+    if success and agent_data then
       -- Use filename (without extension) as agent key
       local agent_name = vim.fn.fnamemodify(file, ':t:r')
       agents[agent_name] = agent_data
@@ -306,7 +364,7 @@ function M._load_agents_from_directory(main_config_file, agents_dir)
       end
     else
       vim.notify(
-        string.format('agent-finder.nvim: Failed to load agent from %s: %s', file, err or 'unknown error'),
+        string.format('agent-finder.nvim: Failed to load agent from %s: %s', file, agent_data or 'unknown error'),
         vim.log.levels.WARN
       )
     end
@@ -596,7 +654,7 @@ function M.start_chat()
   -- Check if API keys are loaded
   local api_keys = vim.b.agent_finder_api_keys or {}
   if not api_keys.openai and not vim.env.OPENAI_API_KEY then
-    vim.notify('agent-finder.nvim: OpenAI API key not found. Please ensure your agents.yaml contains the openai key or set OPENAI_API_KEY environment variable.', vim.log.levels.WARN)
+    vim.notify('agent-finder.nvim: OpenAI API key not found. Please ensure your agents.lua contains the openai key or set OPENAI_API_KEY environment variable.', vim.log.levels.WARN)
     return false
   end
   
@@ -1173,7 +1231,7 @@ function M._call_openai_api(messages, model, api_key, opts)
   opts = opts or {}
   
   if not api_key then
-    return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY environment variable or configure it in agents.yaml" }
+    return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY environment variable or configure it in agents.lua" }
   end
 
   -- Convert local tools into OpenAI tool schema if available
