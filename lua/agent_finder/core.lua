@@ -1320,6 +1320,9 @@ function M._call_openai_api(messages, model, api_key, opts)
     model = model,
     input = request_input,
     max_output_tokens = 1000,
+    -- Add parameters to handle reasoning better
+    temperature = 0.7,
+    top_p = 1,
   }
 
   if opts.instructions and type(opts.instructions) == "string" then
@@ -1368,6 +1371,23 @@ function M._call_openai_api(messages, model, api_key, opts)
         err_msg = s
       end
     end
+    
+    -- Handle specific reasoning-related errors
+    if string.find(err_msg, "reasoning") and string.find(err_msg, "required following item") then
+      debug_log("Detected reasoning error, attempting to extract partial content")
+      -- Try to extract any partial content that might be available
+      if result.output and type(result.output) == "table" then
+        for _, item in ipairs(result.output) do
+          if type(item) == "table" and item.type == "reasoning" and item.content then
+            debug_log("Found reasoning content despite error:", item.content)
+            return { success = true, content = item.content }
+          end
+        end
+      end
+      -- If no content found, return a user-friendly message
+      return { success = true, content = "I'm thinking about your request. Please try asking again or rephrase your question." }
+    end
+    
     return { success = false, error = "OpenAI API error: " .. err_msg }
   end
   
@@ -1559,7 +1579,21 @@ function M._generate_ai_response(agent, user_message, chat_history)
     debug_log("API response:", vim.inspect(resp))
     if not resp.success then
       debug_log("API call failed:", resp.error)
-      return resp
+      -- If it's a reasoning error and this is the first iteration, try with different parameters
+      if iter == 1 and string.find(resp.error, "reasoning") and string.find(resp.error, "required following item") then
+        debug_log("Retrying with different model parameters to avoid reasoning error")
+        -- Try with a different model or parameters
+        local fallback_resp = M._call_openai_api(input_list, "gpt-4o-mini", openai_key, { prebuilt_input = input_list, instructions = instructions, return_raw = true })
+        if fallback_resp.success then
+          debug_log("Fallback API call succeeded")
+          resp = fallback_resp
+        else
+          debug_log("Fallback API call also failed:", fallback_resp.error)
+          return resp
+        end
+      else
+        return resp
+      end
     end
     
     -- If we got text content, check if it contains a tool call
