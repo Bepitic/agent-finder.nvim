@@ -735,7 +735,7 @@ function M._open_chat_window(agent)
   vim.api.nvim_win_set_buf(0, chat_bufnr)
   
   -- Set window options
-  vim.api.nvim_win_set_option(0, 'number', true)
+  vim.api.nvim_win_set_option(0, 'number', false)
   vim.api.nvim_win_set_option(0, 'relativenumber', false)
   vim.api.nvim_win_set_option(0, 'wrap', true)
   
