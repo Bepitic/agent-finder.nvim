@@ -929,15 +929,43 @@ function M._send_chat_message()
     local tool_result = nil
     local parsed_tool_name = nil
     
-    -- Try to parse JSON tool usage from response
-    local tool_match = response.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
-    if tool_match then
-      local success, tool_data = pcall(vim.fn.json_decode, tool_match)
-      if success and tool_data.tool_name and tool_data.parameters then
-        -- Execute the tool
-        tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
+    -- Check for direct tool call from new API
+    if response.tool_call then
+      local tool_call = response.tool_call
+      local tool_name = nil
+      local tool_args = {}
+      
+      if tool_call.function then
+        tool_name = tool_call.function.name
+        if tool_call.function.arguments then
+          if type(tool_call.function.arguments) == "string" then
+            local success, parsed = pcall(vim.fn.json_decode, tool_call.function.arguments)
+            if success then tool_args = parsed end
+          elseif type(tool_call.function.arguments) == "table" then
+            tool_args = tool_call.function.arguments
+          end
+        end
+      elseif tool_call.name then
+        tool_name = tool_call.name
+        tool_args = tool_call.arguments or tool_call.input or {}
+      end
+      
+      if tool_name then
+        tool_result = M.execute_tool(tool_name, tool_args)
         tool_used = true
-        parsed_tool_name = tool_data.tool_name
+        parsed_tool_name = tool_name
+      end
+    else
+      -- Fallback: Try to parse JSON tool usage from response content
+      local tool_match = response.content:match("```json%s*({[\n\r\t %-%w_%[%]{}:\",.]+})%s*```")
+      if tool_match then
+        local success, tool_data = pcall(vim.fn.json_decode, tool_match)
+        if success and tool_data.tool_name and tool_data.parameters then
+          -- Execute the tool
+          tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
+          tool_used = true
+          parsed_tool_name = tool_data.tool_name
+        end
       end
     end
     
@@ -1264,249 +1292,152 @@ Ask me for the first task to perform.]]
 end
 
 -- OpenAI API integration
+local json = vim.fn.json_encode
+local decode = vim.json and vim.json.decode or vim.fn.json_decode
+local curl = require("plenary.curl")  -- or swap with your HTTP layer
+
+-- Helper: convert local tools -> OpenAI schema (supports both APIs)
+local function build_tools_for(api_kind, tools_schema)
+  if not tools_schema then return nil end
+  local out = {}
+  for tool_name, spec in pairs(tools_schema) do
+    local fn = {
+      name = spec.tool_name or tool_name,
+      description = spec.description or "",
+      parameters = spec.parameters or { type = "object", properties = {}, required = {} },
+    }
+    if api_kind == "responses" then
+      table.insert(out, { type = "function", ["function"] = fn })
+    else -- "chat"
+      table.insert(out, { type = "function", ["function"] = fn })
+      -- (For older SDKs some used {type="function", name=..., parameters=...}, but the current
+      -- chat.completions also accepts the nested { function = {...} } form. Keep this.)
+    end
+  end
+  return (#out > 0) and out or nil
+end
+
+-- Helper: robust content extractor
+local function extract_content(api_kind, body)
+  -- 1) Responses API happy path
+  if api_kind == "responses" then
+    if body.output_text and body.output_text ~= "" then
+      return { kind = "text", content = body.output_text }
+    end
+    -- fallback: walk output array
+    if body.output and type(body.output) == "table" then
+      for _, item in ipairs(body.output) do
+        if item.type == "message" and item.content then
+          local buf = {}
+          for _, c in ipairs(item.content) do
+            if c.type == "output_text" and c.text then table.insert(buf, c.text)
+            elseif c.type == "text" and c.text then table.insert(buf, c.text) end
+          end
+          if #buf > 0 then return { kind = "text", content = table.concat(buf, "") } end
+        elseif item.type == "tool_call" then
+          return { kind = "tool_call", content = item } -- hand back to caller
+        end
+      end
+    end
+    -- refusal?
+    if body.refusal and body.refusal ~= "" then
+      return { kind = "refusal", content = body.refusal }
+    end
+    return { kind = "none", content = nil }
+  end
+
+  -- 2) Chat Completions API
+  if body.choices and body.choices[1] then
+    local m = body.choices[1].message or {}
+    if m.content and m.content ~= "" then
+      return { kind = "text", content = m.content }
+    end
+    if m.tool_calls and #m.tool_calls > 0 then
+      return { kind = "tool_call", content = m.tool_calls[1] }
+    end
+    if m.refusal and m.refusal ~= "" then
+      return { kind = "refusal", content = m.refusal }
+    end
+  end
+  return { kind = "none", content = nil }
+end
+
+-- Main call
 function M._call_openai_api(messages, model, api_key, opts)
-  model = model or "gpt-5-nano-2025-08-07"
+  model = model or "gpt-5-micro"
   api_key = api_key or vim.env.OPENAI_API_KEY
   opts = opts or {}
-  
+
   if not api_key then
-    return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY environment variable or configure it in agents.lua" }
+    return { success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY or configure it in agents.lua" }
   end
 
-  -- Convert local tools into OpenAI tool schema if available
-  local openai_tools = nil
-  local available_tools = M.get_tools()
+  -- Decide endpoint
+  local api_kind = (opts.api == "chat") and "chat" or "responses"
+  local url = (api_kind == "responses")
+      and "https://api.openai.com/v1/responses"
+      or  "https://api.openai.com/v1/chat/completions"
+
+  -- Build tools (if any)
+  local tools_schema = nil
+  local available_tools = M.get_tools and M.get_tools() or nil
   if available_tools and type(available_tools) == "table" and not vim.tbl_isempty(available_tools) then
-    local tools_schema = M.generate_tools_schema()
-    openai_tools = {}
-    for tool_name, spec in pairs(tools_schema or {}) do
-      table.insert(openai_tools, {
-        type = "function",
-        name = spec.tool_name or tool_name,
-        description = spec.description or "",
-        parameters = spec.parameters or { type = "object", properties = {}, required = {} },
-      })
-    end
+    tools_schema = M.generate_tools_schema and M.generate_tools_schema() or nil
   end
+  local openai_tools = build_tools_for(api_kind, tools_schema)
 
-  -- Build input for Responses API
-  local request_input = nil
-  if opts.prebuilt_input ~= nil then
-    request_input = opts.prebuilt_input
+  -- Build payload
+  local payload
+  if api_kind == "responses" then
+    -- Responses API takes `input` (array of messages or mixed parts)
+    payload = {
+      model = model,
+      input = messages,                     -- you can pass chat-style messages directly
+      tools = openai_tools,
+      tool_choice = opts.tool_choice,       -- e.g., "auto"
+      max_output_tokens = opts.max_tokens,  -- Responses uses max_output_tokens
+      temperature = opts.temperature,
+      response_format = opts.response_format, -- e.g. { type="json_schema", json_schema={...} }
+    }
   else
-    -- Fallback: convert messages into an array of message items
-    if type(messages) == "table" then
-      local items = {}
-      for _, msg in ipairs(messages) do
-        local role = msg.role or "user"
-        local content_type = (role == "assistant") and "output_text" or "input_text"
-        table.insert(items, {
-          type = "message",
-          role = role,
-          content = { { type = content_type, text = msg.content or "" } },
-        })
-      end
-      request_input = items
-    elseif type(messages) == "string" then
-      request_input = {
-        { type = "message", role = "user", content = { { type = "input_text", text = messages } } }
-      }
-    else
-      request_input = {}
-    end
-  end
-  
-  local request_body = {
-    model = model,
-    input = request_input,
-    max_output_tokens = 1000,
-  }
-
-  if opts.instructions and type(opts.instructions) == "string" then
-    request_body.instructions = opts.instructions
+    -- Chat Completions API uses `messages`
+    payload = {
+      model = model,
+      messages = messages,
+      tools = openai_tools,
+      tool_choice = opts.tool_choice,       -- "auto" / { "type": "function", "function": { "name": "..." } }
+      max_tokens = opts.max_tokens,
+      temperature = opts.temperature,
+      response_format = opts.response_format, -- newer chat API also supports structured outputs
+    }
   end
 
-  if openai_tools and #openai_tools > 0 then
-    request_body.tools = openai_tools
-    request_body.tool_choice = "auto"
-  end
-  
-  local json_body = vim.fn.json_encode(request_body)
-  
-  -- Make HTTP request to OpenAI API
-  local response = vim.fn.system({
-    'curl',
-    '-s',
-    '-X', 'POST',
-    'https://api.openai.com/v1/responses',
-    '-H', 'Content-Type: application/json',
-    '-H', 'Authorization: Bearer ' .. api_key,
-    '-d', json_body
+  -- Send
+  local res = curl.post(url, {
+    headers = {
+      ["Authorization"] = "Bearer " .. api_key,
+      ["Content-Type"] = "application/json",
+    },
+    body = json(payload),
   })
-  
-  if vim.v.shell_error ~= 0 then
-    return { success = false, error = "Failed to make API request to OpenAI" }
-  end
-  
-  local success, result = pcall(vim.fn.json_decode, response)
-  if not success then
-    return { success = false, error = "Failed to parse OpenAI API response" }
-  end
-  
-  if result.error ~= nil and result.error ~= vim.NIL then
-    local err_msg = "Unknown error"
-    if type(result.error) == "table" then
-      err_msg = result.error.message or result.error.type or vim.fn.json_encode(result.error)
-    elseif type(result.error) == "string" then
-      err_msg = result.error
-    else
-      -- result.error can be userdata; stringify safely
-      local ok, s = pcall(function()
-        return tostring(result.error)
-      end)
-      if ok and s and s ~= "" then
-        err_msg = s
-      end
-    end
-    
-    -- Handle specific reasoning-related errors
-    if string.find(err_msg, "reasoning") and string.find(err_msg, "required following item") then
-      debug_log("Detected reasoning error, attempting to extract partial content")
-      -- Try to extract any partial content that might be available
-      if result.output and type(result.output) == "table" then
-        for _, item in ipairs(result.output) do
-          if type(item) == "table" and item.type == "reasoning" and item.content then
-            debug_log("Found reasoning content despite error:", item.content)
-            return { success = true, content = item.content }
-          end
-        end
-      end
-      -- If no content found, return a user-friendly message
-      return { success = true, content = "I'm thinking about your request. Please try asking again or rephrase your question." }
-    end
-    
-    return { success = false, error = "OpenAI API error: " .. err_msg }
-  end
-  
-  -- Try Responses API fields first
-  local content = nil
-  if type(result.output_text) == "string" and result.output_text ~= "" then
-    content = result.output_text
-  elseif type(result.content) == "table" then
-    -- Aggregate text from content items
-    local parts = {}
-    for _, item in ipairs(result.content) do
-      if type(item) == "table" then
-        if item.type == "output_text" and type(item.text) == "string" then
-          table.insert(parts, item.text)
-        elseif item.type == "text" and type(item.text) == "string" then
-          table.insert(parts, item.text)
-        elseif item.type == "message" and type(item.content) == "table" then
-          for _, sub in ipairs(item.content) do
-            if (sub.type == "text" or sub.type == "output_text") and type(sub.text) == "string" then
-              table.insert(parts, sub.text)
-            end
-          end
-        end
-      end
-    end
-    if #parts > 0 then
-      content = table.concat(parts, "\n")
-    end
-  elseif type(result.output) == "table" then
-    -- Some models return `output` instead of `content`
-    local parts = {}
-    for _, item in ipairs(result.output) do
-      if type(item) == "table" then
-        if item.type == "output_text" and type(item.text) == "string" then
-          table.insert(parts, item.text)
-        elseif item.type == "text" and type(item.text) == "string" then
-          table.insert(parts, item.text)
-        elseif item.type == "message" and type(item.content) == "table" then
-          for _, sub in ipairs(item.content) do
-            if (sub.type == "text" or sub.type == "output_text") and type(sub.text) == "string" then
-              table.insert(parts, sub.text)
-            end
-          end
-        end
-      end
-    end
-    if #parts > 0 then
-      content = table.concat(parts, "\n")
-    end
+
+  if res.status < 200 or res.status >= 300 then
+    return { success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") }
   end
 
-  -- Back-compat: Chat Completions shape
-  if not content and result.choices and #result.choices > 0 then
-    local message = result.choices[1].message or {}
-    content = message.content
-    -- If model responded with tool calls, translate first one into a JSON block
-    if (not content or content == "") and message.tool_calls and #message.tool_calls > 0 then
-      local tool_call = message.tool_calls[1]
-      if tool_call and tool_call.type == "function" and tool_call["function"] then
-        local fn = tool_call["function"]
-        local args_tbl = nil
-        if type(fn.arguments) == "string" and fn.arguments ~= "" then
-          local ok, parsed_args = pcall(vim.fn.json_decode, fn.arguments)
-          if ok then args_tbl = parsed_args end
-        elseif type(fn.arguments) == "table" then
-          args_tbl = fn.arguments
-        end
-        args_tbl = args_tbl or {}
-        local tool_json = {
-          tool_name = fn.name,
-          parameters = args_tbl,
-        }
-        content = "```json\n" .. vim.fn.json_encode(tool_json) .. "\n```"
-      end
-    end
-  end
+  local body = decode(res.body)
+  local out = extract_content(api_kind, body)
 
-  -- Responses tool call shape: try to translate if no plain text was found
-  local function try_extract_tool_from_items(items)
-    for _, item in ipairs(items) do
-      if type(item) == "table" then
-        if item.type == "tool_call" or item.type == "tool_use" or item.type == "function_call" then
-          local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
-          local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
-          local args_tbl = {}
-          if type(args) == "string" and args ~= "" then
-            local ok, parsed = pcall(vim.fn.json_decode, args)
-            if ok then args_tbl = parsed else args_tbl = { _raw = args } end
-          elseif type(args) == "table" then
-            args_tbl = args
-          end
-          if name then
-            local tool_json = { tool_name = name, parameters = args_tbl }
-            return "```json\n" .. vim.fn.json_encode(tool_json) .. "\n```"
-          end
-        elseif item.type == "message" and type(item.content) == "table" then
-          local inner = try_extract_tool_from_items(item.content)
-          if inner then return inner end
-        end
-      end
-    end
-    return nil
+  if out.kind == "text" then
+    return { success = true, content = out.content, raw = body }
+  elseif out.kind == "tool_call" then
+    -- Hand tool call up to your tool runner; include raw for arguments
+    return { success = true, tool_call = out.content, raw = body }
+  elseif out.kind == "refusal" then
+    return { success = false, error = out.content, raw = body }
+  else
+    return { success = false, error = "no content found", raw = body }
   end
-
-  if (not content or content == "") and type(result.content) == "table" then
-    content = try_extract_tool_from_items(result.content) or content
-  end
-  if (not content or content == "") and type(result.output) == "table" then
-    content = try_extract_tool_from_items(result.output) or content
-  end
-
-  if not content or content == "" then
-    if opts.return_raw then
-      return { success = true, content = "", raw = result }
-    end
-    return { success = false, error = "Empty response from OpenAI API" }
-  end
-  
-  if opts.return_raw then
-    return { success = true, content = content, raw = result }
-  end
-  return { success = true, content = content }
 end
 
 -- Generate AI response using OpenAI with tools integration
@@ -1572,7 +1503,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
   for iter = 1, max_iters do
     debug_log("API call iteration:", iter)
     debug_log("Input list:", vim.inspect(input_list))
-    local resp = M._call_openai_api(input_list, nil, openai_key, { prebuilt_input = input_list, instructions = instructions, return_raw = true })
+    local resp = M._call_openai_api(input_list, nil, openai_key, { instructions = instructions })
     debug_log("API response:", vim.inspect(resp))
     if not resp.success then
       debug_log("API call failed:", resp.error)
@@ -1580,7 +1511,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
       if iter == 1 and string.find(resp.error, "reasoning") and string.find(resp.error, "required following item") then
         debug_log("Retrying with different model parameters to avoid reasoning error")
         -- Try with a different model or parameters
-        local fallback_resp = M._call_openai_api(input_list, "gpt-4o-mini", openai_key, { prebuilt_input = input_list, instructions = instructions, return_raw = true })
+        local fallback_resp = M._call_openai_api(input_list, "gpt-4o-mini", openai_key, { instructions = instructions })
         if fallback_resp.success then
           debug_log("Fallback API call succeeded")
           resp = fallback_resp
@@ -1593,35 +1524,71 @@ function M._generate_ai_response(agent, user_message, chat_history)
       end
     end
     
-    -- If we got text content, check if it contains a tool call
-    if resp.content and resp.content ~= "" then
-      debug_log("Checking content for tool call:", resp.content)
-      -- Check if the content contains a JSON tool call
+    -- Check if we got a tool call directly from the API
+    if resp.tool_call then
+      debug_log("Found direct tool call:", vim.inspect(resp.tool_call))
+      local tool_call = resp.tool_call
+      local tool_name = nil
+      local tool_args = {}
+      
+      -- Extract tool name and arguments based on API format
+      if tool_call.function then
+        tool_name = tool_call.function.name
+        if tool_call.function.arguments then
+          if type(tool_call.function.arguments) == "string" then
+            local success, parsed = pcall(vim.fn.json_decode, tool_call.function.arguments)
+            if success then
+              tool_args = parsed
+            end
+          elseif type(tool_call.function.arguments) == "table" then
+            tool_args = tool_call.function.arguments
+          end
+        end
+      elseif tool_call.name then
+        tool_name = tool_call.name
+        tool_args = tool_call.arguments or tool_call.input or {}
+      end
+      
+      if tool_name then
+        debug_log("Executing tool:", tool_name, "with args:", vim.inspect(tool_args))
+        local tool_result = M.execute_tool(tool_name, tool_args)
+        debug_log("Tool result:", vim.inspect(tool_result))
+        
+        -- Check if this is a Terminate tool - if so, stop processing
+        if tool_name == "Terminate" and tool_result.success then
+          debug_log("Terminate tool executed, stopping processing loop")
+          return { success = true, content = "Agent processing terminated. Waiting for user input." }
+        end
+        
+        -- Add the tool result to the input list for the next iteration
+        local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+        table.insert(input_list, {
+          type = "message",
+          role = "assistant",
+          content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", tool_name, tool_result_json) } },
+        })
+        
+        -- Continue the loop to get the agent's response to the tool result
+      else
+        debug_log("Could not extract tool name from tool call")
+        return { success = false, error = "Invalid tool call format" }
+      end
+    elseif resp.content and resp.content ~= "" then
+      debug_log("Found text content:", resp.content)
+      -- Check if the content contains a JSON tool call (fallback for older formats)
       local tool_match = resp.content:match("```json%s*({[^`]+})%s*```")
       if tool_match then
-        debug_log("Found tool match:", tool_match)
+        debug_log("Found tool match in content:", tool_match)
         local success, tool_data = pcall(vim.fn.json_decode, tool_match)
-        debug_log("JSON decode success:", success)
-        if success then
-          debug_log("Tool data:", vim.inspect(tool_data))
-        end
         if success and tool_data.tool_name and tool_data.parameters then
-          debug_log("Executing tool:", tool_data.tool_name)
-          -- Execute the tool
+          debug_log("Executing tool from content:", tool_data.tool_name)
           local tool_result = M.execute_tool(tool_data.tool_name, tool_data.parameters)
           debug_log("Tool result:", vim.inspect(tool_result))
           
           -- Check if this is a Terminate tool - if so, stop processing
           if tool_data.tool_name == "Terminate" and tool_result.success then
             debug_log("Terminate tool executed, stopping processing loop")
-            -- Return the current response content if any, or a simple termination message
-            local final_content = ""
-            if resp.content and resp.content ~= "" then
-              final_content = resp.content
-            else
-              final_content = "Agent processing terminated. Waiting for user input."
-            end
-            return { success = true, content = final_content }
+            return { success = true, content = "Agent processing terminated. Waiting for user input." }
           end
           
           -- Add the tool result to the input list for the next iteration
@@ -1631,218 +1598,26 @@ function M._generate_ai_response(agent, user_message, chat_history)
             role = "assistant",
             content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", tool_data.tool_name, tool_result_json) } },
           })
-          
-          -- Continue the loop to get the agent's response to the tool result
-          -- (fall through to the rest of the loop)
         else
           debug_log("Tool parsing failed, returning content as-is")
-          -- If tool parsing failed, return the content as-is
           return { success = true, content = resp.content }
         end
       else
         debug_log("No tool call found, returning content")
-        -- If no tool call found, return the content
         return { success = true, content = resp.content }
       end
+    else
+      debug_log("No content or tool call found")
+      return { success = false, error = "No content or tool call found in response" }
     end
     
-    local raw = resp.raw or {}
-    local output_items = {}
-    if type(raw.output) == "table" then
-      output_items = raw.output
-    elseif type(raw.content) == "table" then
-      output_items = raw.content
-    end
-    
-    -- Append model output back into the next request input
-    for _, item in ipairs(output_items) do
-      table.insert(input_list, item)
-    end
-    
-    -- Execute any function calls and append their outputs
-    local executed_any = false
-    debug_log("Processing output items for tool calls:", #output_items)
-    for i, item in ipairs(output_items) do
-      debug_log("Processing item", i, ":", vim.inspect(item))
-      if type(item) == "table" then
-        local item_type = item.type
-        debug_log("Item type:", item_type)
-        if item_type == "function_call" or item_type == "tool_use" or item_type == "tool_call" then
-          local name = item.name or (item.tool and item.tool.name) or (item["function"] and item["function"].name)
-          local args = item.arguments or item.input or (item["function"] and item["function"].arguments)
-          debug_log("Tool call found - name:", name, "args:", vim.inspect(args))
-          local args_tbl = {}
-          if type(args) == "string" and args ~= "" then
-            local ok, parsed = pcall(vim.fn.json_decode, args)
-            if ok then args_tbl = parsed else args_tbl = { _raw = args } end
-          elseif type(args) == "table" then
-            args_tbl = args
-          end
-          if name and name ~= "" then
-            debug_log("Executing tool:", name, "with args:", vim.inspect(args_tbl))
-            local tool_result = M.execute_tool(name, args_tbl)
-            debug_log("Tool execution result:", vim.inspect(tool_result))
-            
-            -- Check if this is a Terminate tool - if so, stop processing
-            if name == "Terminate" and tool_result.success then
-              debug_log("Terminate tool executed, stopping processing loop")
-              -- Return the current response content if any, or a simple termination message
-              local final_content = ""
-              if resp.content and resp.content ~= "" then
-                final_content = resp.content
-              else
-                final_content = "Agent processing terminated. Waiting for user input."
-              end
-              return { success = true, content = final_content }
-            end
-            
-            local call_id = item.call_id or item.id or (name .. "_call")
-            local output_payload = tool_result
-            -- Ensure output is a JSON string
-            local output_str = nil
-            local ok_json, encoded = pcall(vim.fn.json_encode, output_payload)
-            if ok_json then output_str = encoded else output_str = tostring(output_payload) end
-            debug_log("Adding tool result to input list:", output_str)
-            table.insert(input_list, {
-              type = "function_call_output",
-              call_id = call_id,
-              output = output_str,
-            })
-            executed_any = true
-          end
-        elseif item_type == "reasoning" then
-          debug_log("Found reasoning item, skipping execution")
-          -- Reasoning items don't need to be executed, just continue
-        end
-      end
-    end
-    
-    -- Check if we have any content items (text, output_text, etc.)
-    local has_content = false
-    local has_reasoning = false
-    for _, item in ipairs(output_items) do
-      if type(item) == "table" then
-        if item.type == "text" or item.type == "output_text" or item.type == "message" then
-          has_content = true
-          debug_log("Found content item:", item.type)
-          break
-        elseif item.type == "reasoning" then
-          has_reasoning = true
-          debug_log("Found reasoning item:", item.type)
-        end
-      end
-    end
-    
-    -- If we have reasoning but no content, extract the reasoning as content
-    if has_reasoning and not has_content then
-      debug_log("Extracting reasoning as content")
-      local reasoning_content = ""
-      for _, item in ipairs(output_items) do
-        if type(item) == "table" and item.type == "reasoning" and item.content then
-          reasoning_content = reasoning_content .. item.content .. "\n"
-        end
-      end
-      if reasoning_content ~= "" then
-        debug_log("Returning reasoning content:", reasoning_content)
-        return { success = true, content = reasoning_content }
-      end
-    end
-    
-    -- If we executed a tool, loop to send the augmented input_list; otherwise break to avoid infinite loop
-    if not executed_any and not has_content and not has_reasoning then
-      debug_log("No tools executed and no content found, breaking loop")
-      break
-    end
+    -- Continue the loop to process the next iteration
+    debug_log("Continuing to next iteration")
   end
   
-  -- Check if we have any content to return from the last response
-  local final_content = ""
-  if resp then
-    debug_log("Checking final response for content:", vim.inspect(resp))
-    -- Check for content in the response
-    if resp.content and resp.content ~= "" then
-      debug_log("Found content in resp.content:", resp.content)
-      final_content = resp.content
-    elseif resp.raw then
-      debug_log("Checking raw response structure:", vim.inspect(resp.raw))
-      -- Check for content in the raw response structure
-      local raw = resp.raw
-      if raw.content and type(raw.content) == "string" and raw.content ~= "" then
-        debug_log("Found content in raw.content:", raw.content)
-        final_content = raw.content
-      elseif raw.output and type(raw.output) == "table" then
-        debug_log("Extracting content from raw.output items:", #raw.output)
-        -- Extract text content from output items
-        for _, item in ipairs(raw.output) do
-          if type(item) == "table" then
-            if item.type == "text" and item.text then
-              debug_log("Found text item:", item.text)
-              final_content = final_content .. item.text
-            elseif item.type == "output_text" and item.text then
-              debug_log("Found output_text item:", item.text)
-              final_content = final_content .. item.text
-            elseif item.type == "reasoning" and item.content then
-              debug_log("Found reasoning item:", item.content)
-              final_content = final_content .. item.content
-            end
-          end
-        end
-      end
-    end
-  end
-  
-  debug_log("Final content extracted:", final_content)
-  if final_content ~= "" then
-    debug_log("Returning successful response with content")
-    return { success = true, content = final_content }
-  end
-  
-  -- Fallback: if we have a response but no content, try to extract any text from the response
-  if resp then
-    debug_log("No content found, trying fallback extraction")
-    local fallback_content = ""
-    
-    -- Try to extract from any text fields in the response
-    if resp.raw and resp.raw.choices and #resp.raw.choices > 0 then
-      local choice = resp.raw.choices[1]
-      if choice.message and choice.message.content then
-        fallback_content = choice.message.content
-        debug_log("Found fallback content in choices[1].message.content:", fallback_content)
-      end
-    end
-    
-    -- Try to extract from output items that might contain text
-    if resp.raw and resp.raw.output then
-      for _, item in ipairs(resp.raw.output) do
-        if type(item) == "table" then
-          if item.type == "reasoning" and item.content then
-            fallback_content = fallback_content .. item.content
-            debug_log("Found reasoning content:", item.content)
-          elseif item.type == "text" and item.text then
-            fallback_content = fallback_content .. item.text
-            debug_log("Found text content:", item.text)
-          elseif item.type == "output_text" and item.text then
-            fallback_content = fallback_content .. item.text
-            debug_log("Found output_text content:", item.text)
-          end
-        end
-      end
-    end
-    
-    if fallback_content ~= "" then
-      debug_log("Returning fallback content")
-      return { success = true, content = fallback_content }
-    end
-  end
-  
-  debug_log("No content found in any format, returning error")
-  -- Try one more fallback - check if we have any response at all
-  if resp and resp.raw then
-    debug_log("Raw response structure:", vim.inspect(resp.raw))
-    -- If we have a raw response but no content, return a generic message
-    return { success = true, content = "I'm processing your request. Please wait a moment and try again." }
-  end
-  return { success = false, error = "No textual output from model after tool calls" }
+  -- If we reach here, we've exhausted all iterations without getting a final response
+  debug_log("Exhausted all iterations without final response")
+  return { success = false, error = "No final response after processing iterations" }
 end
 
 -- Close chat
