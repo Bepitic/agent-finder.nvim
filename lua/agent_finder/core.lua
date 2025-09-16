@@ -1469,7 +1469,7 @@ function M._generate_ai_response(agent, user_message, chat_history)
   end
   
   if not openai_key then
-    return { success = false, error = "OpenAI API key not configured. Please run :AFLoad to load your agents.yaml configuration, or set OPENAI_API_KEY environment variable." }
+    return { success = false, error = "OpenAI API key not configured. Please run :AFLoad to load your agents.lua configuration, or set OPENAI_API_KEY environment variable." }
   end
   
   -- Ensure tools are loaded (tools are added to request automatically inside _call_openai_api)

@@ -61,7 +61,7 @@ M.parameters = {
     type = "string",
     required = false,
     default = "*",
-    description = "File pattern to match (e.g., '*.lua', '*.yaml', '**/*.md')"
+    description = "File pattern to match (e.g., '*.lua', '*.md', '**/*.txt')"
   },
   include_hidden = {
     type = "boolean",

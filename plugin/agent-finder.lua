@@ -11,7 +11,7 @@ local function setup_commands()
     else
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
-  end, { desc = 'Load AI agents from YAML configuration' })
+  end, { desc = 'Load AI agents from Lua configuration' })
 
   vim.api.nvim_create_user_command('AFGoal', function()
     local ok, agent_finder = pcall(require, 'agent_finder')
@@ -236,32 +236,42 @@ local function setup_commands()
     local ok, agent_finder = pcall(require, 'agent_finder')
     if ok then
       local config = require('agent_finder.config')
-      local yaml = require('agent_finder.yaml')
       
       -- Get the agents file path
       local agents_file = config.get('agents_file')
       
-      vim.notify('agent-finder.nvim: Testing YAML parsing...', vim.log.levels.INFO)
+      vim.notify('agent-finder.nvim: Testing Lua configuration loading...', vim.log.levels.INFO)
       vim.notify('agent-finder.nvim: Agents file: ' .. agents_file, vim.log.levels.INFO)
       
-      -- Test YAML parsing
-      local data, err = yaml.parse_file(agents_file)
-      if data then
-        vim.notify('agent-finder.nvim: YAML parsing successful!', vim.log.levels.INFO)
-        vim.notify('agent-finder.nvim: Parsed data: ' .. vim.fn.json_encode(data), vim.log.levels.INFO)
+      -- Test Lua configuration loading
+      local success, data = pcall(function()
+        local dir = vim.fn.fnamemodify(agents_file, ':h')
+        local original_path = package.path
+        package.path = dir .. '/?.lua;' .. package.path
+        
+        local config_module = dofile(agents_file)
+        
+        package.path = original_path
+        
+        return config_module
+      end)
+      
+      if success and data then
+        vim.notify('agent-finder.nvim: Lua configuration loading successful!', vim.log.levels.INFO)
+        vim.notify('agent-finder.nvim: Loaded data: ' .. vim.fn.json_encode(data), vim.log.levels.INFO)
         
         if data.api_keys then
           vim.notify('agent-finder.nvim: API keys found: ' .. vim.fn.json_encode(data.api_keys), vim.log.levels.INFO)
         else
-          vim.notify('agent-finder.nvim: No API keys found in parsed data', vim.log.levels.WARN)
+          vim.notify('agent-finder.nvim: No API keys found in loaded data', vim.log.levels.WARN)
         end
       else
-        vim.notify('agent-finder.nvim: YAML parsing failed: ' .. (err or 'unknown error'), vim.log.levels.ERROR)
+        vim.notify('agent-finder.nvim: Lua configuration loading failed: ' .. (data or 'unknown error'), vim.log.levels.ERROR)
       end
     else
       vim.notify('agent-finder.nvim: Failed to load module', vim.log.levels.ERROR)
     end
-  end, { desc = 'Debug YAML parsing and API key loading' })
+  end, { desc = 'Debug Lua configuration loading and API key loading' })
 
   -- Hot-reload this plugin's Lua modules without restarting Neovim
   vim.api.nvim_create_user_command('AFReload', function()
@@ -283,7 +293,6 @@ local function setup_commands()
         'agent_finder',
         'agent_finder.core',
         'agent_finder.config',
-        'agent_finder.yaml',
       }
       for _, name in ipairs(unload) do
         package.loaded[name] = nil
