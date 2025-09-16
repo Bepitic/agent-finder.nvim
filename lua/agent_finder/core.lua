@@ -1245,7 +1245,7 @@ function M.generate_tools_schema()
       end
       
       schema[tool_name] = {
-        tool_name = tool_name,
+        name = tool.name or tool_name,
         description = tool.description or "",
         parameters = {
           type = "object",
@@ -1256,7 +1256,7 @@ function M.generate_tools_schema()
     else
       -- Tool with no parameters
       schema[tool_name] = {
-        tool_name = tool_name,
+        name = tool.name or tool_name,
         description = tool.description or "",
         parameters = {
           type = "object",
@@ -1308,13 +1308,16 @@ end
 -- Helper: convert local tools -> OpenAI schema (supports both APIs)
 local function build_tools_for(api_kind, tools_schema)
   if not tools_schema then return nil end
+  debug_log("build_tools_for called with tools_schema:", vim.inspect(tools_schema))
   local out = {}
   for tool_name, spec in pairs(tools_schema) do
+    debug_log("Processing tool:", tool_name, "spec:", vim.inspect(spec))
     local fn = {
         name = spec.name or spec.tool_name or tool_name,
         description = spec.description or "",
         parameters = spec.parameters or { type = "object", properties = {}, required = {} },
     }
+    debug_log("Built function:", vim.inspect(fn))
     if api_kind == "responses" then
       table.insert(out, { type = "function", ["function"] = fn })
     else -- "chat"
@@ -1390,10 +1393,13 @@ function M._call_openai_api(messages, model, api_key, opts)
   -- Build tools (if any)
   local tools_schema = nil
   local available_tools = M.get_tools and M.get_tools() or nil
+  debug_log("Available tools:", vim.inspect(available_tools))
   if available_tools and type(available_tools) == "table" and not vim.tbl_isempty(available_tools) then
     tools_schema = M.generate_tools_schema and M.generate_tools_schema() or nil
+    debug_log("Generated tools schema:", vim.inspect(tools_schema))
   end
   local openai_tools = build_tools_for(api_kind, tools_schema)
+  debug_log("OpenAI tools:", vim.inspect(openai_tools))
 
   -- Build payload
   local payload
