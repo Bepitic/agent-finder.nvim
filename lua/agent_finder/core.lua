@@ -1245,7 +1245,7 @@ function M.generate_tools_schema()
       end
       
       schema[tool_name] = {
-        name = tool.name or tool_name,
+        name = tool_name,
         description = tool.description or "",
         parameters = {
           type = "object",
@@ -1256,7 +1256,7 @@ function M.generate_tools_schema()
     else
       -- Tool with no parameters
       schema[tool_name] = {
-        name = tool.name or tool_name,
+        name = tool_name,
         description = tool.description or "",
         parameters = {
           type = "object",
@@ -1312,19 +1312,16 @@ local function build_tools_for(api_kind, tools_schema)
   local out = {}
   for tool_name, spec in pairs(tools_schema) do
     debug_log("Processing tool:", tool_name, "spec:", vim.inspect(spec))
+    local raw_name = spec.name or spec.tool_name or tool_name
+    local safe_name = tostring(raw_name):gsub("[^a-zA-Z0-9_]","_"):lower()
     local fn = {
-        name = spec.name or spec.tool_name or tool_name,
+      name = safe_name,
         description = spec.description or "",
         parameters = spec.parameters or { type = "object", properties = {}, required = {} },
     }
-    debug_log("Built function:", vim.inspect(fn))
-    if api_kind == "responses" then
-      table.insert(out, { type = "function", ["function"] = fn })
-    else -- "chat"
-      table.insert(out, { type = "function", ["function"] = fn })
-      -- (For older SDKs some used {type="function", name=..., parameters=...}, but the current
-      -- chat.completions also accepts the nested { function = {...} } form. Keep this.)
-    end
+    debug_log("Built function (flat):", vim.inspect(fn))
+    -- Use flat tools format to satisfy endpoints expecting tools[0].name
+    table.insert(out, fn)
   end
   return (#out > 0) and out or nil
 end
@@ -1411,7 +1408,6 @@ function M._call_openai_api(messages, model, api_key, opts)
       tools = openai_tools,
       tool_choice = opts.tool_choice,       -- e.g., "auto"
       max_output_tokens = opts.max_tokens,  -- Responses uses max_output_tokens
-      temperature = opts.temperature,
       response_format = opts.response_format, -- e.g. { type="json_schema", json_schema={...} }
     }
   else
@@ -1422,7 +1418,6 @@ function M._call_openai_api(messages, model, api_key, opts)
       tools = openai_tools,
       tool_choice = opts.tool_choice,       -- "auto" / { "type": "function", "function": { "name": "..." } }
       max_tokens = opts.max_tokens,
-      temperature = opts.temperature,
       response_format = opts.response_format, -- newer chat API also supports structured outputs
     }
   end
