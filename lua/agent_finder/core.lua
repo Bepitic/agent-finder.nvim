@@ -3,6 +3,10 @@
 local M = {}
 local config = require('agent_finder.config')
 
+-- Internal animation state
+M._thinking_timers = M._thinking_timers or {}
+M._thinking_lines = M._thinking_lines or {}
+
 -- Debug logging function
 local function debug_log(message, ...)
   if config.get('debug') then
@@ -835,20 +839,23 @@ function M._start_thinking_animation()
   -- The thinking line is the second-to-last line (followed by an empty line)
   local total_lines = vim.api.nvim_buf_line_count(bufnr)
   local start0 = math.max(0, total_lines - 2)
-  vim.b.agent_finder_thinking_line0 = start0
+  M._thinking_lines[bufnr] = start0
 
   local frames = { ".", "o", "O", "@" }
   local frame_idx = 1
 
+  -- If an existing timer is running for this buffer, do not start another
+  if M._thinking_timers[bufnr] then return end
+
   local timer = vim.loop.new_timer()
-  vim.b.agent_finder_thinking_timer = timer
+  M._thinking_timers[bufnr] = timer
   timer:start(0, 200, function()
     if not vim.api.nvim_buf_is_valid(bufnr) then
       timer:stop(); timer:close()
-      vim.b.agent_finder_thinking_timer = nil
+      M._thinking_timers[bufnr] = nil
       return
     end
-    local idx0 = vim.b.agent_finder_thinking_line0
+    local idx0 = M._thinking_lines[bufnr]
     if type(idx0) ~= 'number' then return end
     local symbol = frames[frame_idx]
     frame_idx = frame_idx + 1
@@ -863,12 +870,14 @@ function M._start_thinking_animation()
 end
 
 function M._stop_thinking_animation()
-  local timer = vim.b.agent_finder_thinking_timer
+  local bufnr = vim.b.agent_finder_chat_bufnr
+  if not bufnr then return end
+  local timer = M._thinking_timers[bufnr]
   if timer then
     pcall(function() timer:stop(); timer:close() end)
   end
-  vim.b.agent_finder_thinking_timer = nil
-  vim.b.agent_finder_thinking_line0 = nil
+  M._thinking_timers[bufnr] = nil
+  M._thinking_lines[bufnr] = nil
 end
 
 -- Send chat message
