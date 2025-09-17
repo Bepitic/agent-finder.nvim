@@ -1309,19 +1309,41 @@ end
 local function build_tools_for(api_kind, tools_schema)
   if not tools_schema then return nil end
   debug_log("build_tools_for called with tools_schema:", vim.inspect(tools_schema))
+  local function to_snake_case(s)
+    s = tostring(s or "")
+    s = s:gsub("[^a-zA-Z0-9]", "_")
+    s = s:gsub("__+", "_")
+    return s:lower()
+  end
   local out = {}
-  for tool_name, spec in pairs(tools_schema) do
-    debug_log("Processing tool:", tool_name, "spec:", vim.inspect(spec))
-    local raw_name = spec.name or spec.tool_name or tool_name
-    local safe_name = tostring(raw_name):gsub("[^a-zA-Z0-9_]","_"):lower()
+  for tool_key, spec in pairs(tools_schema) do
+    debug_log("Processing tool:", tool_key, "spec:", vim.inspect(spec))
+    local raw_name = spec.name or spec.tool_name or tool_key
+    local snake = to_snake_case(raw_name)
+    -- Special rename: list_files -> list_workspace_files
+    if snake == "list_files" then
+      snake = "list_workspace_files"
+    end
+
+    -- Clone parameters and adjust types/defaults as needed
+    local parameters = spec.parameters or { type = "object", properties = {}, required = {} }
+    parameters.type = parameters.type or "object"
+    parameters.properties = parameters.properties or {}
+    parameters.required = parameters.required or {}
+
+    -- Ensure integer type for max_depth if present
+    if parameters.properties.max_depth and parameters.properties.max_depth.type == "number" then
+      parameters.properties.max_depth.type = "integer"
+    end
+
     local fn = {
-      name = safe_name,
-        description = spec.description or "",
-        parameters = spec.parameters or { type = "object", properties = {}, required = {} },
+      name = snake,
+      description = spec.description or "",
+      parameters = parameters,
     }
-    debug_log("Built function (flat):", vim.inspect(fn))
-    -- Use flat tools format to satisfy endpoints expecting tools[0].name
-    table.insert(out, fn)
+    local wrapped = { type = "function", ["function"] = fn }
+    debug_log("Built function (nested):", vim.inspect(wrapped))
+    table.insert(out, wrapped)
   end
   return (#out > 0) and out or nil
 end
