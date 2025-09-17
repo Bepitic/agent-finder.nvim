@@ -1309,21 +1309,10 @@ end
 local function build_tools_for(api_kind, tools_schema)
   if not tools_schema then return nil end
   debug_log("build_tools_for called with tools_schema:", vim.inspect(tools_schema))
-  local function to_snake_case(s)
-    s = tostring(s or "")
-    s = s:gsub("[^a-zA-Z0-9]", "_")
-    s = s:gsub("__+", "_")
-    return s:lower()
-  end
   local out = {}
   for tool_key, spec in pairs(tools_schema) do
     debug_log("Processing tool:", tool_key, "spec:", vim.inspect(spec))
     local raw_name = spec.name or spec.tool_name or tool_key
-    local snake = to_snake_case(raw_name)
-    -- Special rename: list_files -> list_workspace_files
-    if snake == "list_files" then
-      snake = "list_workspace_files"
-    end
 
     -- Clone parameters and adjust types/defaults as needed
     local parameters = spec.parameters or { type = "object", properties = {}, required = {} }
@@ -1337,7 +1326,7 @@ local function build_tools_for(api_kind, tools_schema)
     end
 
     local fn = {
-      name = snake,
+      name = raw_name,
       description = spec.description or "",
       parameters = parameters,
     }
@@ -1428,9 +1417,10 @@ function M._call_openai_api(messages, model, api_key, opts)
       model = model,
       input = messages,                     -- you can pass chat-style messages directly
       tools = openai_tools,
-      tool_choice = opts.tool_choice,       -- e.g., "auto"
+      tool_choice = opts.tool_choice or "auto",       -- e.g., "auto"
       max_output_tokens = opts.max_tokens,  -- Responses uses max_output_tokens
       response_format = opts.response_format, -- e.g. { type="json_schema", json_schema={...} }
+      instructions = opts.instructions,     -- system-style instructions for Responses API
     }
   else
     -- Chat Completions API uses `messages`
