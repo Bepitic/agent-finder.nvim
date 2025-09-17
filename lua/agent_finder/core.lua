@@ -1325,14 +1325,27 @@ local function build_tools_for(api_kind, tools_schema)
       parameters.properties.max_depth.type = "integer"
     end
 
-    local fn = {
-      name = raw_name,
-      description = spec.description or "",
-      parameters = parameters,
-    }
-    local wrapped = { type = "function", ["function"] = fn }
-    debug_log("Built function (nested):", vim.inspect(wrapped))
-    table.insert(out, wrapped)
+    if api_kind == "responses" then
+      -- Responses API expects flat tool objects: { type, name, description, parameters }
+      local tool_obj = {
+        type = "function",
+        name = raw_name,
+        description = spec.description or "",
+        parameters = parameters,
+      }
+      debug_log("Built function (flat):", vim.inspect(tool_obj))
+      table.insert(out, tool_obj)
+    else
+      -- Chat Completions API expects nested under "function"
+      local fn = {
+        name = raw_name,
+        description = spec.description or "",
+        parameters = parameters,
+      }
+      local wrapped = { type = "function", ["function"] = fn }
+      debug_log("Built function (nested):", vim.inspect(wrapped))
+      table.insert(out, wrapped)
+    end
   end
   return (#out > 0) and out or nil
 end
