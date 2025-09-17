@@ -18,100 +18,7 @@ local function debug_log(message, ...)
   end
 end
 
--- Async OpenAI API call (non-blocking)
-function M._call_openai_api_async(messages, model, api_key, opts, callback)
-  model = model or "gpt-5-nano-2025-08-07"
-  api_key = api_key or vim.env.OPENAI_API_KEY
-  opts = opts or {}
-  if type(callback) ~= "function" then
-    error("callback is required for _call_openai_api_async")
-  end
-
-  if not api_key then
-    callback({ success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY or configure it in agents.lua" })
-    return
-  end
-
-  local api_kind = (opts.api == "chat") and "chat" or "responses"
-  local url = (api_kind == "responses")
-      and "https://api.openai.com/v1/responses"
-      or  "https://api.openai.com/v1/chat/completions"
-
-  -- Build tools (if any)
-  local tools_schema = nil
-  local available_tools = M.get_tools and M.get_tools() or nil
-  if available_tools and type(available_tools) == "table" and not vim.tbl_isempty(available_tools) then
-    tools_schema = M.generate_tools_schema and M.generate_tools_schema() or nil
-  end
-  local openai_tools = build_tools_for(api_kind, tools_schema)
-
-  -- Build payload
-  local payload
-  if api_kind == "responses" then
-    payload = {
-      model = model,
-      input = messages,
-      tools = openai_tools,
-      tool_choice = opts.tool_choice or "auto",
-      max_output_tokens = opts.max_tokens,
-      response_format = opts.response_format,
-      instructions = opts.instructions,
-    }
-  else
-    payload = {
-      model = model,
-      messages = messages,
-      tools = openai_tools,
-      tool_choice = opts.tool_choice,
-      max_tokens = opts.max_tokens,
-      response_format = opts.response_format,
-    }
-  end
-
-  local timeout_ms = tonumber((opts and opts.timeout_ms) or 300000)
-  if not curl or not curl.request then
-    callback({ success = false, error = "HTTP client unavailable: plenary.curl not found" })
-    return
-  end
-
-  curl.request({
-    url = url,
-    method = "post",
-    headers = {
-      ["Authorization"] = "Bearer " .. api_key,
-      ["Content-Type"] = "application/json",
-    },
-    body = json(payload),
-    timeout = timeout_ms,
-    callback = function(res)
-      vim.schedule(function()
-        if not res or not res.status then
-          callback({ success = false, error = "HTTP request failed or timed out" })
-          return
-        end
-        if res.status < 200 or res.status >= 300 then
-          callback({ success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") })
-          return
-        end
-        local ok, body_tbl = pcall(decode, res.body)
-        if not ok then
-          callback({ success = false, error = "Failed to parse OpenAI API response" })
-          return
-        end
-        local out = extract_content(api_kind, body_tbl)
-        if out.kind == "text" then
-          callback({ success = true, content = out.content, raw = body_tbl })
-        elseif out.kind == "tool_call" then
-          callback({ success = true, tool_call = out.content, raw = body_tbl })
-        elseif out.kind == "refusal" then
-          callback({ success = false, error = out.content, raw = body_tbl })
-        else
-          callback({ success = false, error = "no content found", raw = body_tbl })
-        end
-      end)
-    end,
-  })
-end
+-- (moved below helpers)
 
 -- Load agents from Lua configuration
 function M.load_agents()
@@ -936,7 +843,7 @@ function M._start_thinking_animation()
   local start0 = math.max(0, total_lines - 2)
   M._thinking_lines[bufnr] = start0
 
-  local frames = { ".", "o", "O", "@" }
+  local frames = { ",", ".", ",", ".", "a", "o", "a", "O", "@" }
   local frame_idx = 1
 
   -- If an existing timer is running for this buffer, do not start another
@@ -1639,6 +1546,101 @@ function M._call_openai_api(messages, model, api_key, opts)
   else
     return { success = false, error = "no content found", raw = body }
   end
+end
+
+-- Async OpenAI API call (non-blocking)
+function M._call_openai_api_async(messages, model, api_key, opts, callback)
+  model = model or "gpt-5-nano-2025-08-07"
+  api_key = api_key or vim.env.OPENAI_API_KEY
+  opts = opts or {}
+  if type(callback) ~= "function" then
+    error("callback is required for _call_openai_api_async")
+  end
+
+  if not api_key then
+    callback({ success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY or configure it in agents.lua" })
+    return
+  end
+
+  local api_kind = (opts.api == "chat") and "chat" or "responses"
+  local url = (api_kind == "responses")
+      and "https://api.openai.com/v1/responses"
+      or  "https://api.openai.com/v1/chat/completions"
+
+  -- Build tools (if any)
+  local tools_schema = nil
+  local available_tools = M.get_tools and M.get_tools() or nil
+  if available_tools and type(available_tools) == "table" and not vim.tbl_isempty(available_tools) then
+    tools_schema = M.generate_tools_schema and M.generate_tools_schema() or nil
+  end
+  local openai_tools = build_tools_for(api_kind, tools_schema)
+
+  -- Build payload
+  local payload
+  if api_kind == "responses" then
+    payload = {
+      model = model,
+      input = messages,
+      tools = openai_tools,
+      tool_choice = opts.tool_choice or "auto",
+      max_output_tokens = opts.max_tokens,
+      response_format = opts.response_format,
+      instructions = opts.instructions,
+    }
+  else
+    payload = {
+      model = model,
+      messages = messages,
+      tools = openai_tools,
+      tool_choice = opts.tool_choice,
+      max_tokens = opts.max_tokens,
+      response_format = opts.response_format,
+    }
+  end
+
+  local timeout_ms = tonumber((opts and opts.timeout_ms) or 300000)
+  if not curl or not curl.request then
+    callback({ success = false, error = "HTTP client unavailable: plenary.curl not found" })
+    return
+  end
+
+  curl.request({
+    url = url,
+    method = "post",
+    headers = {
+      ["Authorization"] = "Bearer " .. api_key,
+      ["Content-Type"] = "application/json",
+    },
+    body = json(payload),
+    timeout = timeout_ms,
+    callback = function(res)
+      vim.schedule(function()
+        if not res or not res.status then
+          callback({ success = false, error = "HTTP request failed or timed out" })
+          return
+        end
+        if res.status < 200 or res.status >= 300 then
+          callback({ success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") })
+          return
+        end
+        local ok, body_tbl = pcall(decode, res.body)
+        if not ok then
+          callback({ success = false, error = "Failed to parse OpenAI API response" })
+          return
+        end
+        local out = extract_content(api_kind, body_tbl)
+        if out.kind == "text" then
+          callback({ success = true, content = out.content, raw = body_tbl })
+        elseif out.kind == "tool_call" then
+          callback({ success = true, tool_call = out.content, raw = body_tbl })
+        elseif out.kind == "refusal" then
+          callback({ success = false, error = out.content, raw = body_tbl })
+        else
+          callback({ success = false, error = "no content found", raw = body_tbl })
+        end
+      end)
+    end,
+  })
 end
 
 -- Generate AI response using OpenAI with tools integration
