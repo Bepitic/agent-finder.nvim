@@ -1449,45 +1449,25 @@ function M._call_openai_api(messages, model, api_key, opts)
 
   -- Send HTTP request
   local res, body
-  if curl then
-    -- Use plenary.curl if available
-    res = curl.post(url, {
-      headers = {
-        ["Authorization"] = "Bearer " .. api_key,
-        ["Content-Type"] = "application/json",
-      },
-      body = json(payload),
-    })
-    
-    if res.status < 200 or res.status >= 300 then
-      return { success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") }
-    end
-    
-    body = decode(res.body)
-  else
-    -- Fallback to system curl
-    local json_body = json(payload)
-  local response = vim.fn.system({
-    'curl',
-    '-s',
-    '-X', 'POST',
-      url,
-    '-H', 'Content-Type: application/json',
-    '-H', 'Authorization: Bearer ' .. api_key,
-    '-d', json_body
+  local timeout_ms = tonumber((opts and opts.timeout_ms) or 300000)
+  if not curl then
+    return { success = false, error = "HTTP client unavailable: plenary.curl not found" }
+  end
+  local ok, r = pcall(curl.post, url, {
+    headers = {
+      ["Authorization"] = "Bearer " .. api_key,
+      ["Content-Type"] = "application/json",
+    },
+    body = json(payload),
+    timeout = timeout_ms,
   })
-  
-  if vim.v.shell_error ~= 0 then
-    return { success = false, error = "Failed to make API request to OpenAI" }
+  if not ok or not r or not r.status then
+    return { success = false, error = "HTTP request failed or timed out" }
   end
-  
-    local success, result = pcall(decode, response)
-  if not success then
-    return { success = false, error = "Failed to parse OpenAI API response" }
+  if r.status < 200 or r.status >= 300 then
+    return { success = false, error = ("HTTP %d: %s"):format(r.status, r.body or "") }
   end
-  
-    body = result
-  end
+  body = decode(r.body)
   local out = extract_content(api_kind, body)
 
   if out.kind == "text" then
