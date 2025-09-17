@@ -843,7 +843,8 @@ function M._start_thinking_animation()
   local start0 = math.max(0, total_lines - 2)
   M._thinking_lines[bufnr] = start0
 
-  local frames = { ",", ".", ",", ".", "a", "o", "a", "O", "@" }
+  -- Smooth growth from small dot to '@' (Unicode-friendly)
+  local frames = { ".", "·", "•", "◦", "◯", "◔", "◕", "●", "@" }
   local frame_idx = 1
 
   -- If an existing timer is running for this buffer, do not start another
