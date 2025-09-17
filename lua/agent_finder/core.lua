@@ -850,21 +850,25 @@ function M._start_thinking_animation()
   local timer = vim.loop.new_timer()
   M._thinking_timers[bufnr] = timer
   timer:start(0, 200, function()
-    if not vim.api.nvim_buf_is_valid(bufnr) then
-      timer:stop(); timer:close()
-      M._thinking_timers[bufnr] = nil
-      return
-    end
-    local idx0 = M._thinking_lines[bufnr]
-    if type(idx0) ~= 'number' then return end
-    local symbol = frames[frame_idx]
-    frame_idx = frame_idx + 1
-    if frame_idx > #frames then frame_idx = 1 end
     vim.schedule(function()
-      if vim.api.nvim_buf_is_valid(bufnr) then
-        local new_line = symbol .. "> thinking"
-        vim.api.nvim_buf_set_lines(bufnr, idx0, idx0 + 1, false, { new_line })
+      if not vim.api.nvim_buf_is_valid(bufnr) then
+        timer:stop(); timer:close()
+        M._thinking_timers[bufnr] = nil
+        return
       end
+      local total = vim.api.nvim_buf_line_count(bufnr)
+      local idx0 = M._thinking_lines[bufnr]
+      if type(idx0) ~= 'number' then return end
+      -- keep the thinking line near the end if buffer changed
+      if idx0 > total - 2 then
+        idx0 = math.max(0, total - 2)
+        M._thinking_lines[bufnr] = idx0
+      end
+      local symbol = frames[frame_idx]
+      frame_idx = frame_idx + 1
+      if frame_idx > #frames then frame_idx = 1 end
+      local new_line = symbol .. "> thinking"
+      vim.api.nvim_buf_set_lines(bufnr, idx0, idx0 + 1, false, { new_line })
     end)
   end)
 end
