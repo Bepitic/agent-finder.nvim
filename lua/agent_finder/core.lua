@@ -18,6 +18,101 @@ local function debug_log(message, ...)
   end
 end
 
+-- Async OpenAI API call (non-blocking)
+function M._call_openai_api_async(messages, model, api_key, opts, callback)
+  model = model or "gpt-5-nano-2025-08-07"
+  api_key = api_key or vim.env.OPENAI_API_KEY
+  opts = opts or {}
+  if type(callback) ~= "function" then
+    error("callback is required for _call_openai_api_async")
+  end
+
+  if not api_key then
+    callback({ success = false, error = "OpenAI API key not found. Set OPENAI_API_KEY or configure it in agents.lua" })
+    return
+  end
+
+  local api_kind = (opts.api == "chat") and "chat" or "responses"
+  local url = (api_kind == "responses")
+      and "https://api.openai.com/v1/responses"
+      or  "https://api.openai.com/v1/chat/completions"
+
+  -- Build tools (if any)
+  local tools_schema = nil
+  local available_tools = M.get_tools and M.get_tools() or nil
+  if available_tools and type(available_tools) == "table" and not vim.tbl_isempty(available_tools) then
+    tools_schema = M.generate_tools_schema and M.generate_tools_schema() or nil
+  end
+  local openai_tools = build_tools_for(api_kind, tools_schema)
+
+  -- Build payload
+  local payload
+  if api_kind == "responses" then
+    payload = {
+      model = model,
+      input = messages,
+      tools = openai_tools,
+      tool_choice = opts.tool_choice or "auto",
+      max_output_tokens = opts.max_tokens,
+      response_format = opts.response_format,
+      instructions = opts.instructions,
+    }
+  else
+    payload = {
+      model = model,
+      messages = messages,
+      tools = openai_tools,
+      tool_choice = opts.tool_choice,
+      max_tokens = opts.max_tokens,
+      response_format = opts.response_format,
+    }
+  end
+
+  local timeout_ms = tonumber((opts and opts.timeout_ms) or 300000)
+  if not curl or not curl.request then
+    callback({ success = false, error = "HTTP client unavailable: plenary.curl not found" })
+    return
+  end
+
+  curl.request({
+    url = url,
+    method = "post",
+    headers = {
+      ["Authorization"] = "Bearer " .. api_key,
+      ["Content-Type"] = "application/json",
+    },
+    body = json(payload),
+    timeout = timeout_ms,
+    callback = function(res)
+      vim.schedule(function()
+        if not res or not res.status then
+          callback({ success = false, error = "HTTP request failed or timed out" })
+          return
+        end
+        if res.status < 200 or res.status >= 300 then
+          callback({ success = false, error = ("HTTP %d: %s"):format(res.status, res.body or "") })
+          return
+        end
+        local ok, body_tbl = pcall(decode, res.body)
+        if not ok then
+          callback({ success = false, error = "Failed to parse OpenAI API response" })
+          return
+        end
+        local out = extract_content(api_kind, body_tbl)
+        if out.kind == "text" then
+          callback({ success = true, content = out.content, raw = body_tbl })
+        elseif out.kind == "tool_call" then
+          callback({ success = true, tool_call = out.content, raw = body_tbl })
+        elseif out.kind == "refusal" then
+          callback({ success = false, error = out.content, raw = body_tbl })
+        else
+          callback({ success = false, error = "no content found", raw = body_tbl })
+        end
+      end)
+    end,
+  })
+end
+
 -- Load agents from Lua configuration
 function M.load_agents()
   local config = require('agent_finder.config')
@@ -974,10 +1069,13 @@ function M._send_chat_message()
   local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
   vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
   
-  -- Generate agent response using OpenAI API with tools
-  local response = M._generate_ai_response(agent, user_message, vim.b.agent_finder_chat_messages)
-  
-  if response.success then
+  -- Generate agent response asynchronously to keep UI responsive
+  M._generate_ai_response_async(agent, user_message, vim.b.agent_finder_chat_messages, function(response)
+    if not vim.api.nvim_buf_is_valid(chat_bufnr) then
+      M._stop_thinking_animation()
+      return
+    end
+    if response.success then
     -- Remove "Thinking..." message
     M._stop_thinking_animation()
     local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
@@ -1125,7 +1223,7 @@ function M._send_chat_message()
     
     -- Add to messages history
     table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response.content })
-  else
+    else
     -- Remove "Thinking..." message
     M._stop_thinking_animation()
     local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
@@ -1147,8 +1245,8 @@ function M._send_chat_message()
   
   -- Move cursor to end
   local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
-  vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
-end
+    vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
+  end)
 
 -- Load tools from tools directory
 function M.load_tools()
@@ -1727,6 +1825,108 @@ function M._generate_ai_response(agent, user_message, chat_history)
   -- If we reach here, we've exhausted all iterations without getting a final response
   debug_log("Exhausted all iterations without final response")
   return { success = false, error = "No final response after processing iterations" }
+end
+
+-- Async variant that uses non-blocking HTTP
+function M._generate_ai_response_async(agent, user_message, chat_history, callback)
+  local api_keys = vim.g.agent_finder_api_keys or vim.b.agent_finder_api_keys or {}
+  local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
+  if not openai_key then
+    callback({ success = false, error = "OpenAI API key not configured. Please run :AFLoad or set OPENAI_API_KEY." })
+    return
+  end
+
+  -- Ensure tools are loaded (tools are added to request automatically inside _call_openai_api_async)
+  local tools = M.get_tools()
+  if not tools or type(tools) ~= "table" or vim.tbl_isempty(tools) then
+    M.load_tools()
+  end
+
+  local input_list = {}
+  if chat_history then
+    for _, msg in ipairs(chat_history) do
+      local role = msg.role or "user"
+      local content_type = (role == "assistant") and "output_text" or "input_text"
+      table.insert(input_list, {
+        type = "message",
+        role = role,
+        content = { { type = content_type, text = msg.content or "" } },
+      })
+    end
+  end
+  table.insert(input_list, {
+    type = "message",
+    role = "user",
+    content = { { type = "input_text", text = user_message or "" } },
+  })
+
+  local instructions = (agent and agent.prompt) or ""
+
+  -- iterative tool handling, up to 3 rounds
+  local max_iters = 3
+  local iter = 1
+
+  local function step()
+    M._call_openai_api_async(input_list, nil, openai_key, { instructions = instructions }, function(resp)
+      if not resp.success then
+        callback(resp)
+        return
+      end
+
+      if resp.tool_call then
+        local tool_call = resp.tool_call
+        local tool_name, tool_args = nil, {}
+        if tool_call["function"] then
+          tool_name = tool_call["function"].name
+          local args = tool_call["function"].arguments
+          if type(args) == "string" then
+            local ok, parsed = pcall(vim.fn.json_decode, args)
+            tool_args = ok and parsed or {}
+          elseif type(args) == "table" then
+            tool_args = args
+          end
+        elseif tool_call.name then
+          tool_name = tool_call.name
+          local args = tool_call.arguments or tool_call.input or {}
+          if type(args) == "string" then
+            local ok, parsed = pcall(vim.fn.json_decode, args)
+            tool_args = ok and parsed or {}
+          else
+            tool_args = args
+          end
+        end
+
+        if not tool_name then
+          callback({ success = false, error = "Invalid tool call format" })
+          return
+        end
+
+        local tool_result = M.execute_tool(tool_name, tool_args)
+        if tool_name == "Terminate" and tool_result.success then
+          callback({ success = true, content = "Agent processing terminated. Waiting for user input." })
+          return
+        end
+
+        local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+        table.insert(input_list, {
+          type = "message",
+          role = "assistant",
+          content = { { type = "output_text", text = string.format("Tool '%s' result as JSON:\n%s", tool_name, tool_result_json) } },
+        })
+
+        iter = iter + 1
+        if iter <= max_iters then
+          step()
+        else
+          callback({ success = false, error = "No final response after processing iterations" })
+        end
+      else
+        callback({ success = true, content = resp.content, raw = resp.raw })
+      end
+    end)
+  end
+
+  step()
 end
 
 -- Close chat
