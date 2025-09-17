@@ -827,6 +827,50 @@ function M._setup_chat_keymaps(bufnr)
   end, opts)
 end
 
+-- Start/stop "thinking" animation in chat buffer
+function M._start_thinking_animation()
+  local bufnr = vim.b.agent_finder_chat_bufnr
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then return end
+
+  -- The thinking line is the second-to-last line (followed by an empty line)
+  local total_lines = vim.api.nvim_buf_line_count(bufnr)
+  local start0 = math.max(0, total_lines - 2)
+  vim.b.agent_finder_thinking_line0 = start0
+
+  local frames = { ".", "o", "O", "@" }
+  local frame_idx = 1
+
+  local timer = vim.loop.new_timer()
+  vim.b.agent_finder_thinking_timer = timer
+  timer:start(0, 200, function()
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+      timer:stop(); timer:close()
+      vim.b.agent_finder_thinking_timer = nil
+      return
+    end
+    local idx0 = vim.b.agent_finder_thinking_line0
+    if type(idx0) ~= 'number' then return end
+    local symbol = frames[frame_idx]
+    frame_idx = frame_idx + 1
+    if frame_idx > #frames then frame_idx = 1 end
+    vim.schedule(function()
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        local new_line = symbol .. "> thinking"
+        vim.api.nvim_buf_set_lines(bufnr, idx0, idx0 + 1, false, { new_line })
+      end
+    end)
+  end)
+end
+
+function M._stop_thinking_animation()
+  local timer = vim.b.agent_finder_thinking_timer
+  if timer then
+    pcall(function() timer:stop(); timer:close() end)
+  end
+  vim.b.agent_finder_thinking_timer = nil
+  vim.b.agent_finder_thinking_line0 = nil
+end
+
 -- Send chat message
 function M._send_chat_message()
   local chat_bufnr = vim.b.agent_finder_chat_bufnr
@@ -908,9 +952,10 @@ function M._send_chat_message()
   -- Add to messages history
   table.insert(vim.b.agent_finder_chat_messages, { role = "user", content = user_message })
   
-  -- Show "Thinking..." message
-  local thinking_line = "@> 🤔 Thinking..."
+  -- Show thinking message and start animation
+  local thinking_line = "@> thinking"
   vim.api.nvim_buf_set_lines(chat_bufnr, -1, -1, false, { thinking_line, "" })
+  M._start_thinking_animation()
   
   -- Move cursor to end
   local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
@@ -921,6 +966,7 @@ function M._send_chat_message()
   
   if response.success then
     -- Remove "Thinking..." message
+    M._stop_thinking_animation()
     local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
     vim.api.nvim_buf_set_lines(chat_bufnr, line_count - 2, line_count, false, {})
     
@@ -1068,6 +1114,7 @@ function M._send_chat_message()
     table.insert(vim.b.agent_finder_chat_messages, { role = "assistant", content = response.content })
   else
     -- Remove "Thinking..." message
+    M._stop_thinking_animation()
     local line_count = vim.api.nvim_buf_line_count(chat_bufnr)
     vim.api.nvim_buf_set_lines(chat_bufnr, line_count - 2, line_count, false, {})
     
