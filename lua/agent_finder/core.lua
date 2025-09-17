@@ -1247,6 +1247,7 @@ function M._send_chat_message()
   local new_lines = vim.api.nvim_buf_get_lines(chat_bufnr, 0, -1, false)
     vim.api.nvim_win_set_cursor(0, { #new_lines, 0 })
   end)
+end
 
 -- Load tools from tools directory
 function M.load_tools()
