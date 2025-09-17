@@ -1397,7 +1397,7 @@ end
 
 -- Main call
 function M._call_openai_api(messages, model, api_key, opts)
-  model = model or "gpt-5-micro"
+  model = model or "gpt-5-nano-2025-08-07"
   api_key = api_key or vim.env.OPENAI_API_KEY
   opts = opts or {}
 
