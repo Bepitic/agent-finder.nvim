@@ -1367,7 +1367,7 @@ local function extract_content(api_kind, body)
             elseif c.type == "text" and c.text then table.insert(buf, c.text) end
           end
           if #buf > 0 then return { kind = "text", content = table.concat(buf, "") } end
-        elseif item.type == "tool_call" then
+        elseif item.type == "tool_call" or item.type == "function_call" then
           return { kind = "tool_call", content = item } -- hand back to caller
         end
       end
@@ -1608,7 +1608,14 @@ function M._generate_ai_response(agent, user_message, chat_history)
         end
       elseif tool_call.name then
         tool_name = tool_call.name
-        tool_args = tool_call.arguments or tool_call.input or {}
+        -- Responses API may return arguments as a JSON string
+        local args = tool_call.arguments or tool_call.input or {}
+        if type(args) == "string" then
+          local ok, parsed = pcall(vim.fn.json_decode, args)
+          tool_args = ok and parsed or {}
+        else
+          tool_args = args
+        end
       end
       
       if tool_name then
