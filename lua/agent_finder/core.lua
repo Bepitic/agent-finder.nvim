@@ -284,13 +284,23 @@ function M._validate_agents(agents)
       return false, string.format('Agent "%s" missing required "name" field', name)
     end
     
-    if not agent.prompt then
-      return false, string.format('Agent "%s" missing required "prompt" field', name)
-    end
-    
-    -- Validate prompt is a string (not a table)
-    if type(agent.prompt) ~= 'string' then
-      return false, string.format('Agent "%s" prompt must be a string, got %s', name, type(agent.prompt))
+    -- Two kinds of agents:
+    -- 1) Built-in LLM (prompt required)
+    -- 2) External Python adapter (command required)
+    if agent.adapter == 'python' then
+      if type(agent.command) ~= 'string' or agent.command == '' then
+        return false, string.format('Agent "%s" (python adapter) requires a non-empty "command" string', name)
+      end
+      if agent.prompt ~= nil and type(agent.prompt) ~= 'string' then
+        return false, string.format('Agent "%s" prompt must be a string when provided', name)
+      end
+    else
+      if not agent.prompt then
+        return false, string.format('Agent "%s" missing required "prompt" field', name)
+      end
+      if type(agent.prompt) ~= 'string' then
+        return false, string.format('Agent "%s" prompt must be a string, got %s', name, type(agent.prompt))
+      end
     end
   end
   
@@ -1372,6 +1382,81 @@ if not curl_available then
   curl = nil  -- Will use system curl fallback
 end
 
+-- Python adapter: JSON-IO subprocess runner
+function M._generate_python_response_async(agent, user_message, chat_history, callback)
+  local cmd = agent.command
+  local args = agent.args or {}
+  local max_iters = agent.max_iters or 3
+  local input_list = {}
+  if chat_history then
+    for _, msg in ipairs(chat_history) do
+      table.insert(input_list, { role = msg.role or 'user', content = msg.content or '' })
+    end
+  end
+  table.insert(input_list, { role = 'user', content = user_message or '' })
+
+  local function run_once(payload, on_done)
+    local stdin_data = vim.fn.json_encode(payload)
+    -- Prefer a single command string to ensure stdin piping works
+    local full_cmd = cmd
+    if args and #args > 0 then
+      full_cmd = cmd .. ' ' .. table.concat(args, ' ')
+    end
+    local out = vim.fn.systemlist(full_cmd, stdin_data)
+    local text = table.concat(out or {}, '\n')
+    if vim.v.shell_error ~= 0 then
+      on_done({ success = false, error = text ~= '' and text or 'Python agent process error' })
+      return
+    end
+    local ok, decoded = pcall(vim.fn.json_decode, text)
+    if not ok then
+      on_done({ success = false, error = 'Invalid JSON from python agent' })
+      return
+    end
+    on_done({ success = true, data = decoded })
+  end
+
+  local instructions = agent.prompt or ''
+  local iter = 1
+  local function step(state)
+    local payload = {
+      instructions = instructions,
+      messages = input_list,
+      tools = M.generate_tools_schema(),
+      iteration = iter,
+    }
+    run_once(payload, function(resp)
+      if not resp.success then callback(resp); return end
+      local data = resp.data or {}
+      if data.tool_call then
+        local tool_name = data.tool_call.name or (data.tool_call["function"] and data.tool_call["function"].name)
+        local args = data.tool_call.arguments or {}
+        if type(args) == 'string' then
+          local ok, parsed = pcall(vim.fn.json_decode, args)
+          args = ok and parsed or {}
+        end
+        if not tool_name then
+          callback({ success = false, error = 'Python agent returned invalid tool_call' })
+          return
+        end
+        local tool_result = M.execute_tool(tool_name, args)
+        local tool_result_json = vim.fn.json_encode(tool_result.data or tool_result)
+        table.insert(input_list, { role = 'assistant', content = string.format("Tool '%s' result as JSON:\n%s", tool_name, tool_result_json) })
+        iter = iter + 1
+        if iter <= max_iters then
+          step()
+        else
+          callback({ success = false, error = 'No final response after processing iterations (python)' })
+        end
+      else
+        callback({ success = true, content = data.content or data.message or '' })
+      end
+    end)
+  end
+
+  step()
+end
+
 -- Helper: convert local tools -> OpenAI schema (supports both APIs)
 local function build_tools_for(api_kind, tools_schema)
   if not tools_schema then return nil end
@@ -1833,6 +1918,11 @@ end
 
 -- Async variant that uses non-blocking HTTP
 function M._generate_ai_response_async(agent, user_message, chat_history, callback)
+  -- If this is a python adapter agent, route to python subprocess runner
+  if agent and agent.adapter == 'python' then
+    return M._generate_python_response_async(agent, user_message, chat_history, callback)
+  end
+
   local api_keys = vim.g.agent_finder_api_keys or vim.b.agent_finder_api_keys or {}
   local openai_key = api_keys.openai or vim.env.OPENAI_API_KEY
   if not openai_key then
