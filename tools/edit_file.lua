@@ -21,9 +21,18 @@ M.parameters = {
     description = "Absolute file path to edit"
   },
   edits = {
-    type = "table",
+    type = "array",
     required = true,
-    description = "Array of edits with start_line, end_line, new_lines (strings)"
+    description = "Array of edits with start_line, end_line, new_lines (strings)",
+    items = {
+      type = "object",
+      properties = {
+        start_line = { type = "integer", description = "1-based start line (inclusive)" },
+        end_line = { type = "integer", description = "1-based end line (inclusive). Use start-1 for insert" },
+        new_lines = { type = "array", items = { type = "string" }, description = "Replacement lines; empty to delete" },
+      },
+      required = { "start_line", "new_lines" }
+    }
   }
 }
 

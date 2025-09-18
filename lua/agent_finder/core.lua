@@ -1306,16 +1306,21 @@ function M.generate_tools_schema()
       local properties = {}
       local required = {}
       
-      for param_name, param_def in pairs(tool.parameters) do
-        properties[param_name] = {
-          type = param_def.type,
-          description = param_def.description or ""
-        }
-        
-        if param_def.default then
-          properties[param_name].default = param_def.default
+      local function copy_param_schema(def)
+        local out = { type = def.type, description = def.description or "" }
+        if def.default ~= nil then out.default = def.default end
+        -- Pass through nested schema hints when present (arrays/objects)
+        if def.type == "array" and def.items then
+          out.items = vim.deepcopy(def.items)
+        elseif def.type == "object" and def.properties then
+          out.properties = vim.deepcopy(def.properties)
+          if def.required then out.required = vim.deepcopy(def.required) end
         end
-        
+        return out
+      end
+      
+      for param_name, param_def in pairs(tool.parameters) do
+        properties[param_name] = copy_param_schema(param_def)
         if param_def.required == true then
           table.insert(required, param_name)
         end
