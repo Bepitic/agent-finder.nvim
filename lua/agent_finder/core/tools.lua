@@ -142,14 +142,27 @@ function M.generate_tools_schema()
       local required = {}
 
       for param_name, param_def in pairs(tool.parameters) do
-        properties[param_name] = {
+        local prop = {
           type = param_def.type,
           description = param_def.description or ""
         }
 
-        if param_def.default then
-          properties[param_name].default = param_def.default
+        -- Preserve array item schemas when provided
+        if param_def.type == "array" and param_def.items ~= nil then
+          prop.items = vim.deepcopy(param_def.items)
         end
+
+        -- Preserve enums if present
+        if param_def.enum ~= nil then
+          prop.enum = vim.deepcopy(param_def.enum)
+        end
+
+        -- Carry default through
+        if param_def.default ~= nil then
+          prop.default = param_def.default
+        end
+
+        properties[param_name] = prop
 
         if param_def.required == true then
           table.insert(required, param_name)
