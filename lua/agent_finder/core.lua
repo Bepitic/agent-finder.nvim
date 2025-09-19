@@ -1391,7 +1391,7 @@ end
 function M._generate_python_response_async(agent, user_message, chat_history, callback)
   local cmd = agent.command
   local args = agent.args or {}
-  local max_iters = agent.max_iters or 3
+  local max_iters = agent.max_iters or 10
   local input_list = {}
   if chat_history then
     for _, msg in ipairs(chat_history) do
@@ -1793,7 +1793,8 @@ function M._generate_ai_response(agent, user_message, chat_history)
   
   local instructions = agent.prompt or ""
   
-  local max_iters = 3
+  -- Allow agents to control max tool/response iterations (fallback to a higher default)
+  local max_iters = (agent and agent.max_iters) or 10
   for iter = 1, max_iters do
     debug_log("API call iteration:", iter)
     debug_log("Input list:", vim.inspect(input_list))
@@ -1960,9 +1961,9 @@ function M._generate_ai_response_async(agent, user_message, chat_history, callba
   })
 
   local instructions = (agent and agent.prompt) or ""
-
-  -- iterative tool handling, up to 3 rounds
-  local max_iters = 3
+  
+  -- Iterative tool handling. Allow agent to override the number of rounds.
+  local max_iters = (agent and agent.max_iters) or 10
   local iter = 1
 
   local function step()
