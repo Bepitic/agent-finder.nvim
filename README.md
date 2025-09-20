@@ -623,3 +623,49 @@ MIT License - see LICENSE file for details.
 - Inspired by the need for better AI integration in Neovim
 - Built with the Neovim Lua API
 - YAML parsing powered by yq (with Lua fallback)
+
+## Python Agent Protocol (v1)
+
+Python agents communicate with the plugin via stdin/stdout JSON.
+
+Input (from plugin):
+```json
+{
+  "protocol": { "version": "1.0" },
+  "instructions": "...",
+  "messages": [
+    { "role": "system|user|assistant", "content": "..." }
+  ],
+  "tools": {
+    "ToolName": {
+      "name": "ToolName",
+      "description": "...",
+      "parameters": { "type": "object", "properties": {"...": {}} }
+    }
+  },
+  "context": { "buffer": { "path": "...", "filetype": "..." }, "editor": { "cwd": "..." } },
+  "iteration": 1
+}
+```
+
+Valid responses (exactly one top-level object per turn):
+- `{ "content": "final assistant reply text" }`
+- `{ "tool_call": { "name": "ToolName", "arguments": { ... } } }`
+- `{ "ask_user": { "message": "question for the user" } }`
+- `{ "terminate": { "message": "optional end note" } }`
+- `{ "error": { "message": "explanation" } }`
+
+The plugin will execute tool calls using tools defined in `tools/`. `ask_user` displays a message to the chat (via the built-in TalkToUser tool) and pauses. `terminate` annotates the chat and exits the agent loop (via the built-in Terminate tool).
+
+### Python SDK
+Use `python/sdk.py` to simplify working with the protocol:
+
+- `read_request()` → parse stdin into a typed request
+- `reply(text)` → emit a final assistant message
+- `call_tool(name, arguments)` → request tool execution
+- `ask_user(message)` → ask user a question
+- `terminate(message=None)` → stop processing
+- `error(message)` → structured error
+- `emit(obj)` → write custom JSON
+
+Example (`python/agent_runner.py`) shows how to use the SDK.

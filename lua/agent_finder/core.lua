@@ -1424,15 +1424,45 @@ function M._generate_python_response_async(agent, user_message, chat_history, ca
   local instructions = agent.prompt or ''
   local iter = 1
   local function step(state)
+    local bufpath = vim.api.nvim_buf_get_name(0)
+    local filetype = vim.bo.filetype
+    local cwd = vim.fn.getcwd()
     local payload = {
+      protocol = { version = '1.0' },
       instructions = instructions,
       messages = input_list,
       tools = M.generate_tools_schema(),
+      context = {
+        buffer = { path = bufpath, filetype = filetype },
+        editor = { cwd = cwd },
+      },
       iteration = iter,
     }
     run_once(payload, function(resp)
       if not resp.success then callback(resp); return end
       local data = resp.data or {}
+      -- Handle structured top-level directives from Python SDK
+      if data.ask_user and type(data.ask_user) == 'table' then
+        local msg = data.ask_user.message or ''
+        if msg ~= '' then
+          -- Use built-in TalkToUser tool to display the question
+          M.execute_tool('TalkToUser', { message = msg })
+        end
+        callback({ success = true, content = '' })
+        return
+      end
+      if data.terminate and type(data.terminate) == 'table' then
+        local msg = data.terminate.message or 'Agent processing terminated. Waiting for your response.'
+        -- Use built-in Terminate tool to end loop and annotate chat
+        M.execute_tool('Terminate', { message = msg })
+        callback({ success = true, content = '' })
+        return
+      end
+      if data.error and type(data.error) == 'table' then
+        local msg = data.error.message or 'Python agent error'
+        callback({ success = false, error = msg })
+        return
+      end
       if data.tool_call then
         local tool_name = data.tool_call.name or (data.tool_call["function"] and data.tool_call["function"].name)
         local args = data.tool_call.arguments or {}
