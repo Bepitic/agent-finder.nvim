@@ -19,5 +19,3 @@ M.prompt = "You are a helpful code assistant running in Python."
 M.max_iters = 3
 
 return M
-
-
